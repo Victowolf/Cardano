@@ -178,7 +178,7 @@ cat > "$RUN_CONFIG_DIR/shelley-genesis.json" <<JSON
     "treasuryCut": 0.20,
 
     "decentralisationParam": 1.0,
-    "extraEntropy": { "neutral": true },
+    "extraEntropy": { "tag": "NeutralNonce" },
 
     "protocolVersion": {
         "major": 10,
