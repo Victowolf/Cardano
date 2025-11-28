@@ -98,8 +98,8 @@ cat > "$CONFIG_DIR/config.json" <<JSON
   "Protocol": "Cardano",
 
   "NodeLoggingFormat": "Json",
-  "TraceBlockFetchDecisions": "Warning",
   "LogMetrics": false,
+  "TraceBlockFetchDecisions": false,
 
   "ByronGenesisFile": "byron-genesis.json",
   "ShelleyGenesisFile": "shelley-genesis.json",
@@ -125,7 +125,6 @@ cat > "$CONFIG_DIR/config.json" <<JSON
   ]
 }
 JSON
-
 
 echo ">>> Computing genesis hash"
 /usr/bin/env python3 - <<PY
