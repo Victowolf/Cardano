@@ -23,21 +23,16 @@ if ! command -v cardano-node >/dev/null 2>&1; then
     wget -q "$RELEASE_URL" -O "$TARBALL"
     tar -xf "$TARBALL"
 
-    echo ">>> Installing binaries"
     mv bin/cardano-node /usr/local/bin/
     mv bin/cardano-cli /usr/local/bin/
 
-    echo ">>> Extracting sanchonet configs"
     cp -r share/sanchonet/* "$RAW_CONFIG_DIR/"
 
     rm -rf bin lib share "$TARBALL"
 fi
 
-echo ">>> DEBUG — listing RAW_CONFIG_DIR:"
-find "$RAW_CONFIG_DIR" -maxdepth 3 -type f -print
-
 ############################################################
-# COPY ONLY REQUIRED FILES INTO CLEAN CONFIG FOLDER
+# COPY REQUIRED FILES INTO CLEAN CONFIG DIR
 ############################################################
 
 cp "$RAW_CONFIG_DIR/config.json" "$RUN_CONFIG_DIR/"
@@ -57,14 +52,13 @@ cardano-cli address key-gen \
 
 cardano-cli address build \
   --payment-verification-key-file "$KEYS_DIR/payment.vkey" \
-  --testnet-magic 4 \
-  > "$KEYS_DIR/payment.addr"
+  --testnet-magic 4 > "$KEYS_DIR/payment.addr"
 
 ADDRESS=$(cat "$KEYS_DIR/payment.addr")
 echo "Funding address: $ADDRESS"
 
 ############################################################
-# MODIFY SHELLEY GENESIS
+# UPDATE SHELLEY GENESIS
 ############################################################
 
 jq ".initialFunds += {\"$ADDRESS\": {\"lovelace\": 1000000000000}}" \
@@ -72,21 +66,22 @@ jq ".initialFunds += {\"$ADDRESS\": {\"lovelace\": 1000000000000}}" \
 mv "$RUN_CONFIG_DIR/tmp.json" "$RUN_CONFIG_DIR/shelley-genesis.json"
 
 ############################################################
-# COMPUTE HASH (SUPPORTED METHOD)
+# COMPUTE NEW HASH (sha256sum is correct for shelley genesis)
 ############################################################
 
 NEW_HASH=$(sha256sum "$RUN_CONFIG_DIR/shelley-genesis.json" | awk '{print $1}')
-echo "Computed hash: $NEW_HASH"
+echo "Computed ShelleyGenesisHash = $NEW_HASH"
 
 ############################################################
-# PATCH CONFIG.JSON
+# PATCH CORRECT FIELD IN config.json
 ############################################################
 
-jq ".npcShelleyGenesisFileHash = \"$NEW_HASH\"" \
+jq ".ShelleyGenesisHash = \"$NEW_HASH\"" \
   "$RUN_CONFIG_DIR/config.json" > "$RUN_CONFIG_DIR/tmp.json"
+
 mv "$RUN_CONFIG_DIR/tmp.json" "$RUN_CONFIG_DIR/config.json"
 
-echo ">>> FINAL config.json contents:"
+echo ">>> FINAL PATCHED CONFIG.JSON:"
 cat "$RUN_CONFIG_DIR/config.json"
 
 ############################################################
@@ -94,6 +89,7 @@ cat "$RUN_CONFIG_DIR/config.json"
 ############################################################
 
 echo ">>> Starting node..."
+
 cardano-node run \
   --topology "$RUN_CONFIG_DIR/topology.json" \
   --database-path "$DB_DIR" \
