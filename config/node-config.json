@@ -1,0 +1,7 @@
+{
+"Protocol": "RealPBFT",
+"Trace": ["NodeToClient"],
+"Logging": {
+"minSeverity": "Info"
+}
+}

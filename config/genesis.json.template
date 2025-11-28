@@ -1,0 +1,21 @@
+{
+"systemStart": "__SYSTEM_START_ISO__",
+"networkMagic": __NETWORK_MAGIC__,
+"protocol": {
+"protocolMajor": 8,
+"protocolMinor": 0
+},
+"initial": {
+"ByronGenesisHash": "",
+"UTxO": {
+"__INITIAL_ADDRESS__": {
+"lovelace": 1000000000000
+}
+}
+},
+"protocolParams": {
+"minFeeA": 44,
+"minFeeB": 155381,
+"maxTxSize": 16384
+}
+}
