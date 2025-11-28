@@ -57,20 +57,13 @@ echo "Funding Address (bech32): $ADDRESS"
 
 ############################################################
 # GENERATE CBOR-ENCODED ADDRESS FOR GENESIS
-# initialFunds MUST USE CBOR ADDRESS FORMAT
 ############################################################
 
-# Payment credential hash
 KEYHASH=$(cardano-cli address key-hash \
   --payment-verification-key-file "$KEYS_DIR/payment.vkey")
 
-# CBOR = 82 <payment credential> <network tag>
-# payment credential is blake2b-28 = 0x581c + keyhash
-# network tag (testnet) = 0x01
-
 CBOR_ADDRESS=$(python3 - <<EOF
 keyhash="$KEYHASH"
-# Construct CBOR: 82, 581c + keyhash, 01 (network id)
 cbor = "82" + "581c" + keyhash + "01"
 print(cbor)
 EOF
@@ -90,17 +83,17 @@ mv "$RUN_CONFIG_DIR/tmp.json" "$RUN_CONFIG_DIR/shelley-genesis.json"
 
 
 ############################################################
-# COMPUTE GENESIS HASH
+# COMPUTE GENESIS HASH (blake2b-256)
 ############################################################
 
-GENESIS_HASH=$(cardano-cli genesis hash --genesis "$RUN_CONFIG_DIR/shelley-genesis.json")
-
-jq ".ShelleyGenesisHash = \"$GENESIS_HASH\"" \
-  "$RUN_CONFIG_DIR/config.json" > "$RUN_CONFIG_DIR/tmp.json"
-
-mv "$RUN_CONFIG_DIR/tmp.json" "$RUN_CONFIG_DIR/config.json"
+GENESIS_HASH=$(openssl dgst -blake2b256 "$RUN_CONFIG_DIR/shelley-genesis.json" | awk '{print $2}')
 
 echo "Correct ShelleyGenesisHash = $GENESIS_HASH"
+
+jq ".ShelleyGenesisHash = \"$GENESIS_HASH\"" \
+   "$RUN_CONFIG_DIR/config.json" > "$RUN_CONFIG_DIR/tmp.json"
+
+mv "$RUN_CONFIG_DIR/tmp.json" "$RUN_CONFIG_DIR/config.json"
 
 
 ############################################################
@@ -125,6 +118,7 @@ echo "    SANCHONET NODE STARTED"
 echo "==============================="
 echo "Funding Address (bech32): $ADDRESS"
 echo "Genesis CBOR Address:     $CBOR_ADDRESS"
+echo "ShelleyGenesisHash:       $GENESIS_HASH"
 echo "Logs:                     $BASE_DIR/node.log"
 echo ""
 
