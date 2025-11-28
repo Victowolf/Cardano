@@ -56,16 +56,104 @@ cardano-cli address build \
   > "$KEYS_DIR/payment.addr"
 
 ADDRESS=$(cat "$KEYS_DIR/payment.addr")
-echo "Funding address: $ADDRESS"
+echo "Funding address (bech32): $ADDRESS"
 
 ############################################################
-# MODIFY SHELLEY GENESIS (ADD INITIAL FUNDS)
+# Convert bech32 address to raw hex bytes expected by genesis
+# Try: 1) cardano-cli address info (if available)
+#      2) fallback to embedded python bech32 decoder
 ############################################################
 
-jq ".initialFunds += {\"$ADDRESS\": {\"lovelace\": 1000000000000}}" \
-   "$RUN_CONFIG_DIR/shelley-genesis.json" > "$RUN_CONFIG_DIR/tmp.json"
+bech32_to_hex_with_cardano_cli() {
+  # cardano-cli address info --address <addr> exists in some versions and prints "address bytes: <hex>"
+  if cardano-cli address info --address "$1" >/dev/null 2>&1; then
+    HEX=$(cardano-cli address info --address "$1" 2>/dev/null | awk -F': ' '/Address bytes/ {print $2; exit}')
+    echo "$HEX"
+    return 0
+  fi
+  return 1
+}
 
-mv "$RUN_CONFIG_DIR/tmp.json" "$RUN_CONFIG_DIR/shelley-genesis.json"
+bech32_to_hex_with_python() {
+  python3 - <<PY
+import sys
+s = sys.argv[1] if len(sys.argv)>1 else None
+if not s:
+    print("", end="")
+    sys.exit(1)
+s = s.strip()
+CHARSET = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"
+# find separator
+pos = s.rfind('1')
+if pos == -1:
+    print("", end=""); sys.exit(1)
+datachars = s[pos+1:]
+try:
+    data = [CHARSET.index(c) for c in datachars]
+except ValueError:
+    print("", end=""); sys.exit(1)
+
+def convertbits(data, frombits, tobits, pad=True):
+    acc = 0
+    bits = 0
+    ret = []
+    maxv = (1 << tobits) - 1
+    for value in data:
+        if value < 0 or value >> frombits:
+            raise ValueError("Invalid value")
+        acc = (acc << frombits) | value
+        bits += frombits
+        while bits >= tobits:
+            bits -= tobits
+            ret.append((acc >> bits) & maxv)
+    if pad:
+        if bits:
+            ret.append((acc << (tobits - bits)) & maxv)
+    else:
+        if bits >= frombits:
+            raise ValueError("Illegal zero padding")
+        if ((acc << (tobits - bits)) & maxv):
+            raise ValueError("Non-zero padding")
+    return ret
+
+try:
+    decoded = convertbits(data, 5, 8, pad=False)
+except Exception:
+    print("", end=""); sys.exit(1)
+print(bytes(decoded).hex())
+PY
+}
+
+ADDRESS_HEX=""
+# attempt cardano-cli based conversion
+if ADDRESS_HEX="$(bech32_to_hex_with_cardano_cli "$ADDRESS")"; then
+  echo "Converted address to hex via cardano-cli: $ADDRESS_HEX"
+else
+  echo "cardano-cli address info not available or didn't return bytes; using embedded python fallback"
+  ADDRESS_HEX="$(bech32_to_hex_with_python "$ADDRESS")"
+  if [ -z "$ADDRESS_HEX" ]; then
+    echo "❌ Could not convert bech32 address to hex. Exiting."
+    exit 1
+  fi
+  echo "Converted address to hex via python fallback: $ADDRESS_HEX"
+fi
+
+############################################################
+# MODIFY SHELLEY GENESIS (ADD INITIAL FUNDS) using hex key
+############################################################
+
+# check existing initialFunds
+if jq -e ".initialFunds" "$RUN_CONFIG_DIR/shelley-genesis.json" >/dev/null; then
+  # create a temp file with the new initialFunds entry using hex key
+  jq ".initialFunds += {\"$ADDRESS_HEX\": {\"lovelace\": 1000000000000}}" \
+    "$RUN_CONFIG_DIR/shelley-genesis.json" > "$RUN_CONFIG_DIR/tmp.json"
+  mv "$RUN_CONFIG_DIR/tmp.json" "$RUN_CONFIG_DIR/shelley-genesis.json"
+else
+  # if initialFunds doesn't exist, create it
+  jq ". + { initialFunds: {\"$ADDRESS_HEX\": {\"lovelace\": 1000000000000}} }" \
+    "$RUN_CONFIG_DIR/shelley-genesis.json" > "$RUN_CONFIG_DIR/tmp.json"
+  mv "$RUN_CONFIG_DIR/tmp.json" "$RUN_CONFIG_DIR/shelley-genesis.json"
+fi
 
 ############################################################
 # TRUE BLAKE2B SHELLEY GENESIS HASH FUNCTION
@@ -126,7 +214,8 @@ echo ""
 echo "==============================="
 echo "    SANCHONET NODE STARTED     "
 echo "==============================="
-echo "Address: $ADDRESS"
+echo "Address (bech32): $ADDRESS"
+echo "Address (hex for genesis initialFunds): $ADDRESS_HEX"
 echo "Logs:    $BASE_DIR/node.log"
 echo ""
 
