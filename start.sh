@@ -94,12 +94,11 @@ cat > "$CONFIG_DIR/node-config.json" <<EOF
   "RequiresNetworkMagic": "RequiresMagic",
   "NetworkMagic": $NETWORK_MAGIC,
 
+  "LastKnownBlockVersion-Major": 7,
+  "LastKnownBlockVersion-Minor": 0,
+
   "EnableP2P": false,
-
-  "minSeverity": "Info",
-
-  "TurnOnLogging": false,
-  "TurnOnTracers": false
+  "minSeverity": "Info"
 }
 EOF
 ############################################################
