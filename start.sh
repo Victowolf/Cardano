@@ -62,13 +62,14 @@ echo "Funding Address (bech32): $ADDRESS"
 KEYHASH=$(cardano-cli address key-hash \
   --payment-verification-key-file "$KEYS_DIR/payment.vkey")
 
-# CBOR address = 82 581c <keyhash> 01
-CBOR_ADDRESS=$(python3 - <<EOF
-keyhash="$KEYHASH"
-cbor = "82" + "581c" + keyhash + "01"
-print(cbor)
-EOF
-)
+# 0x60 = enterprise Shelley address for testnet
+HEADER="60"
+
+# CBOR byte string:
+# 58 = CBOR bytes
+# 1d = length (29 bytes)
+# then header + 28-byte keyhash
+CBOR_ADDRESS="581d${HEADER}${KEYHASH}"
 
 echo "Genesis CBOR Address: $CBOR_ADDRESS"
 
