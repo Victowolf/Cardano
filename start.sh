@@ -19,15 +19,20 @@ mkdir -p "$CONFIG_DIR" "$DB_DIR" "$KEYS_DIR"
 ############################################################
 
 if ! command -v cardano-node >/dev/null 2>&1; then
+    echo ">>> Downloading Cardano Node ${CARDANO_VERSION}"
     wget -q "$RELEASE_URL" -O "$TARBALL"
+
+    echo ">>> Extracting..."
     tar -xf "$TARBALL"
 
+    echo ">>> Installing binaries"
     mv bin/cardano-node "$BIN_DIR/"
     mv bin/cardano-cli "$BIN_DIR/"
 
-    # Copy official Sanchonet configs
+    echo ">>> Copying official Sanchonet configs"
     cp -r share/sanchonet/* "$CONFIG_DIR/"
 
+    echo ">>> Cleaning tarball"
     rm -rf bin lib share "$TARBALL"
 fi
 
@@ -35,9 +40,13 @@ fi
 # GENERATE WALLET + FUND IT IN GENESIS
 ############################################################
 
+echo ">>> Generating wallet keys"
+
 cardano-cli address key-gen \
   --verification-key-file "$KEYS_DIR/payment.vkey" \
   --signing-key-file "$KEYS_DIR/payment.skey"
+
+echo ">>> Building testnet address"
 
 cardano-cli address build \
   --payment-verification-key-file "$KEYS_DIR/payment.vkey" \
@@ -48,15 +57,38 @@ ADDRESS=$(cat "$KEYS_DIR/payment.addr")
 
 echo "Funding address: $ADDRESS"
 
-# Add funds to shelley-genesis
+############################################################
+# EDIT SHELLEY GENESIS (ADD INITIAL FUNDS)
+############################################################
+
+echo ">>> Adding initial funds to Shelley genesis"
+
 jq ".initialFunds += {\"$ADDRESS\": {\"lovelace\": 1000000000000}}" \
    "$CONFIG_DIR/shelley-genesis.json" > "$CONFIG_DIR/tmp.json"
 
 mv "$CONFIG_DIR/tmp.json" "$CONFIG_DIR/shelley-genesis.json"
 
 ############################################################
+# UPDATE GENESIS HASH IN CONFIG.JSON
+############################################################
+
+echo ">>> Updating genesis hash in config.json"
+
+NEW_HASH=$(cardano-cli genesis hash --genesis "$CONFIG_DIR/shelley-genesis.json")
+
+jq ".npcShelleyGenesisFileHash = \"$NEW_HASH\"" \
+   "$CONFIG_DIR/config.json" > "$CONFIG_DIR/tmp.json"
+
+mv "$CONFIG_DIR/tmp.json" "$CONFIG_DIR/config.json"
+
+echo "New expected Shelley Genesis Hash:"
+echo "$NEW_HASH"
+
+############################################################
 # START NODE
 ############################################################
+
+echo ">>> Starting cardano-node..."
 
 cardano-node run \
   --topology "$CONFIG_DIR/topology.json" \
@@ -74,4 +106,5 @@ echo "=============================="
 echo "Address: $ADDRESS"
 echo "Config: $CONFIG_DIR"
 echo ""
+echo "Tailing logs..."
 tail -f "$BASE_DIR/node.log"
