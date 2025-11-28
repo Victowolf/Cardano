@@ -1,13 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# -----------------------
-# Simple Private Cardano single-node starter
-# - Designed for local / k8s dev
-# - Injects initialFunds (1,000,000 ADA as lovelace 1e12)
-# - Uses Python to produce CBOR Shelley address (no --with-cbor cli)
-# - Uses a unique network magic so this is a private chain
-# -----------------------
+# ----------------------------------------------------
+# Private Cardano Node Starter (Fixed for Cardano 10.x)
+# - Correct Shelley CBOR address generation
+# - Valid initialFunds format
+# - Pure Python CBOR (no cardano-address dependency)
+# ----------------------------------------------------
 
 CARDANO_VERSION="10.1.4"
 TARBALL="cardano-node-${CARDANO_VERSION}-linux.tar.gz"
@@ -20,32 +19,24 @@ DB_DIR="$BASE_DIR/db"
 KEYS_DIR="$BASE_DIR/keys"
 LOG_FILE="$BASE_DIR/node.log"
 
-# private network magic (choose a number unlikely to collide)
 NETWORK_MAGIC=1337
+INITIAL_LOVELACE=1000000000000   # 1 million ADA
 
-# initial funds (lovelace)
-INITIAL_LOVELACE=1000000000000    # 1,000,000 ADA = 1e12 lovelace
-
-# cleanup old
 rm -rf "$RAW_CONFIG_DIR" "$RUN_CONFIG_DIR" "$DB_DIR" "$KEYS_DIR" "$LOG_FILE"
 mkdir -p "$RAW_CONFIG_DIR" "$RUN_CONFIG_DIR" "$DB_DIR" "$KEYS_DIR"
 
-# ensure /usr/local/bin is used first
 export PATH="/usr/local/bin:$PATH"
 
-echo "==> Ensure cardano-node ${CARDANO_VERSION} & cardano-cli are available (will install if missing)"
+echo "==> Ensure cardano-node ${CARDANO_VERSION} present"
 
-# Download and extract the release tarball if we don't already have a node binary of the target version.
-if ! (command -v cardano-node >/dev/null 2>&1 && cardano-node version 2>/dev/null | grep -q "${CARDANO_VERSION}") ; then
+if ! (command -v cardano-node >/dev/null 2>&1 && cardano-node version | grep -q "${CARDANO_VERSION}"); then
   echo ">>> Downloading cardano-node ${CARDANO_VERSION}"
   wget -q "$RELEASE_URL" -O "$TARBALL"
   tar -xf "$TARBALL"
 
-  # install binaries (overwrite if present)
   install -m 755 bin/cardano-node /usr/local/bin/cardano-node
   install -m 755 bin/cardano-cli  /usr/local/bin/cardano-cli
 
-  # copy sample configs if provided (the tarball often contains sample config sets)
   if [ -d "share/sanchonet" ]; then
     cp -r share/sanchonet/* "$RAW_CONFIG_DIR/" || true
   fi
@@ -56,12 +47,10 @@ fi
 echo ">>> cardano-cli version:"
 cardano-cli version || true
 
-# If no raw configs were found, create a minimal config set so the node can run.
+# Minimal config generation if missing
 if [ ! -f "$RAW_CONFIG_DIR/config.json" ]; then
-  echo "No sample configs found in tarball; writing minimal config templates..."
+  echo "No config templates found, generating minimal set"
 
-  mkdir -p "$RAW_CONFIG_DIR"
-  # Minimal config.json (sane defaults) - this is minimal and intended only for dev/private chains
   cat > "$RAW_CONFIG_DIR/config.json" <<JSON
 {
   "NodeLoggingFormat": "Json",
@@ -70,75 +59,67 @@ if [ ! -f "$RAW_CONFIG_DIR/config.json" ]; then
   "AlonzoGenesisFile": "alonzo-genesis.json",
   "ConwayGenesisFile": "conway-genesis.json",
   "Protocol": "Cardano",
-  "SocksProxy": null
+  "AcceptableNetworkMagic": $NETWORK_MAGIC
 }
 JSON
 
-  # Minimal topology.json (no peers; single-node)
-  cat > "$RAW_CONFIG_DIR/topology.json" <<JSON
-{
-  "Producers": []
-}
-JSON
-
-  # Minimal byron/alonz/chain genesis placeholders (we'll focus on shelley)
-  cp /dev/null "$RAW_CONFIG_DIR/byron-genesis.json" || true
-  cp /dev/null "$RAW_CONFIG_DIR/alonzo-genesis.json" || true
-  cp /dev/null "$RAW_CONFIG_DIR/conway-genesis.json" || true
+  echo '{}' > "$RAW_CONFIG_DIR/topology.json"
+  echo '{}' > "$RAW_CONFIG_DIR/byron-genesis.json"
+  echo '{}' > "$RAW_CONFIG_DIR/alonzo-genesis.json"
+  echo '{}' > "$RAW_CONFIG_DIR/conway-genesis.json"
 fi
 
-# copy into run dir
 cp -r "$RAW_CONFIG_DIR/"* "$RUN_CONFIG_DIR/" || true
 
-# ---------------------------
+# ----------------------------------------------------
 # Generate payment keys
-# ---------------------------
-echo ">>> Generating payment key pair"
+# ----------------------------------------------------
+echo ">>> Generating payment keys"
 cardano-cli address key-gen \
   --verification-key-file "$KEYS_DIR/payment.vkey" \
   --signing-key-file "$KEYS_DIR/payment.skey"
 
-# build bech32 address (human readable)
+# Bech32 display address
 ADDRESS=$(cardano-cli address build \
   --payment-verification-key-file "$KEYS_DIR/payment.vkey" \
   --testnet-magic "$NETWORK_MAGIC")
 
 echo "Funding Address (bech32): $ADDRESS"
 
-# ---------------------------
-# Build CBOR Shelley address (independent of CLI CBOR support)
-# ---------------------------
-echo ">>> Building CBOR Shelley address from payment key hash"
+# ----------------------------------------------------
+# FIXED CBOR ADDRESS (Cardano 10.x)
+# ----------------------------------------------------
+echo ">>> Building valid Shelley CBOR address"
 
 KEYHASH=$(cardano-cli address key-hash \
   --payment-verification-key-file "$KEYS_DIR/payment.vkey")
 
 CBOR_ADDRESS=$(python3 - <<EOF
-import binascii, sys
+import binascii
 keyhash = "$KEYHASH"
 
-# For our private chain choose a network id. For dev single-node we set network_id = 0 (common)
-# but network magic identifies the chain for the CLI node run.
-# header = 0x60 | network_id  # here use 0 (payment address)
-network_id = 0x00
-header = 0x60 | network_id
+# Cardano Shelley payment keyhash address format:
+#   [ 0: header byte (payment, keyhash, testnet) = 0x66
+#     1: CBOR bytestring (0x58 length=0x1c) + keyhash
+#   ]
+header = 0x66  # payment + keyhash + testnet
 
 cbor = bytearray()
-cbor.append(0x82)       # array(2)
-cbor.append(header)     # address header
-cbor.append(0x58)       # bytes (one-byte length)
-cbor.append(0x1c)       # 28 bytes length
+cbor.append(0x82)         # array(2)
+cbor.append(header)       # header byte
+cbor.append(0x58)         # bytes
+cbor.append(0x1c)         # length 28 bytes
 cbor += binascii.unhexlify(keyhash)
+
 print(binascii.hexlify(cbor).decode())
 EOF
 )
 
 echo "Genesis CBOR Address: $CBOR_ADDRESS"
 
-############################################################
-# WRITE A MODERN SHELLEY GENESIS (Cardano 10.x Compatible)
-############################################################
-
+# ----------------------------------------------------
+# Shelley Genesis
+# ----------------------------------------------------
 SYSTEM_START=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
 cat > "$RUN_CONFIG_DIR/shelley-genesis.json" <<JSON
@@ -156,7 +137,7 @@ cat > "$RUN_CONFIG_DIR/shelley-genesis.json" <<JSON
 
   "maxLovelaceSupply": 45000000000000000,
 
-    "protocolParams": {
+  "protocolParams": {
     "minFeeA": 44,
     "minFeeB": 155381,
     "maxBlockBodySize": 65536,
@@ -165,7 +146,6 @@ cat > "$RUN_CONFIG_DIR/shelley-genesis.json" <<JSON
 
     "keyDeposit": 2000000,
     "poolDeposit": 500000000,
-
     "eMax": 18,
     "nOpt": 150,
 
@@ -180,65 +160,32 @@ cat > "$RUN_CONFIG_DIR/shelley-genesis.json" <<JSON
     "decentralisationParam": 1.0,
     "extraEntropy": { "tag": "NeutralNonce" },
 
-    "protocolVersion": {
-        "major": 10,
-        "minor": 0
-    },
+    "protocolVersion": { "major": 10, "minor": 0 },
 
-    "maxBlockExecutionUnits": {
-        "memory": 10000000,
-        "steps": 5000000000
-    },
-    "maxTxExecutionUnits": {
-        "memory": 5000000,
-        "steps": 2000000000
-    },
+    "maxBlockExecutionUnits": { "memory": 10000000, "steps": 5000000000 },
+    "maxTxExecutionUnits": { "memory": 5000000, "steps": 2000000000 },
 
-    "prices": {
-        "memory": 0.001,
-        "steps": 0.000000001
-    },
+    "prices": { "memory": 0.001, "steps": 0.000000001 },
 
     "maxValueSize": 5000,
-
     "collateralPercentage": 150,
     "maxCollateralInputs": 3
-    },
+  },
 
   "initialFunds": {
     "$CBOR_ADDRESS": { "lovelace": $INITIAL_LOVELACE }
   },
 
-  "staking": {
-    "pools": {},
-    "stake": {}
-  },
-
+  "staking": { "pools": {}, "stake": {} },
   "genDelegs": {}
 }
 JSON
 
-# ---------------------------
-# Patch config.json to reference shelley-genesis and set network magic & other sane defaults
-# ---------------------------
-echo ">>> Patching config.json for private network"
+# ----------------------------------------------------
+# Patch config.json
+# ----------------------------------------------------
+echo ">>> Patching config.json"
 
-# Create a minimal config.json if missing keys
-if [ ! -f "$RUN_CONFIG_DIR/config.json" ]; then
-  cat > "$RUN_CONFIG_DIR/config.json" <<JSON
-{
-  "protocol": "Cardano",
-  "ByronGenesisFile": "byron-genesis.json",
-  "AlonzoGenesisFile": "alonzo-genesis.json",
-  "ConwayGenesisFile": "conway-genesis.json",
-  "ShelleyGenesisFile": "shelley-genesis.json",
-  "ShelleyGenesisHash": "",
-  "AcceptableNetworkMagic": $NETWORK_MAGIC
-}
-JSON
-fi
-
-# Compute ShelleyGenesisHash (blake2b-256)
 GENESIS_HASH=$(python3 - <<EOF
 import hashlib
 d = open("$RUN_CONFIG_DIR/shelley-genesis.json","rb").read()
@@ -247,14 +194,7 @@ print(h.hexdigest())
 EOF
 )
 
-# Update config.json's ShelleyGenesisHash (use jq if available)
-if command -v jq >/dev/null 2>&1; then
-  jq ".ShelleyGenesisHash = \"$GENESIS_HASH\" | .ShelleyGenesisFile = \"shelley-genesis.json\" | .AcceptableNetworkMagic = $NETWORK_MAGIC" \
-    "$RUN_CONFIG_DIR/config.json" > "$RUN_CONFIG_DIR/tmp.json"
-  mv "$RUN_CONFIG_DIR/tmp.json" "$RUN_CONFIG_DIR/config.json"
-else
-  # crude replace (works for our minimal config)
-  python3 - <<PY
+python3 - <<EOF
 import json
 p="$RUN_CONFIG_DIR/config.json"
 c=json.load(open(p))
@@ -262,14 +202,13 @@ c["ShelleyGenesisHash"]="$GENESIS_HASH"
 c["ShelleyGenesisFile"]="shelley-genesis.json"
 c["AcceptableNetworkMagic"]=$NETWORK_MAGIC
 open(p,"w").write(json.dumps(c, indent=2))
-PY
-fi
+EOF
 
 echo "Correct ShelleyGenesisHash = $GENESIS_HASH"
 
-# ---------------------------
-# Start the node
-# ---------------------------
+# ----------------------------------------------------
+# START NODE
+# ----------------------------------------------------
 echo ">>> Starting cardano-node..."
 
 cardano-node run \
@@ -285,7 +224,7 @@ sleep 2
 
 echo ""
 echo "==============================="
-echo "    PRIVATE CARDANO NODE STARTED"
+echo " PRIVATE CARDANO NODE STARTED "
 echo "==============================="
 echo "Funding Address (bech32): $ADDRESS"
 echo "Genesis CBOR Address:     $CBOR_ADDRESS"
