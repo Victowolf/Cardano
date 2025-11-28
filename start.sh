@@ -53,20 +53,24 @@ ADDRESS=$(cardano-cli address build \
 echo "Funding Address (bech32): $ADDRESS"
 
 ############################################################
-# GET CORRECT CBOR SHELLEY ADDRESS (WORKS ON ALL CLI VERSIONS)
+# GET CBOR SHELLEY ADDRESS WITHOUT 'xxd' (PYTHON ONLY)
 ############################################################
 
-# Save raw CBOR address to file
+# Generate raw CBOR Shelley address (binary)
 cardano-cli address build \
   --payment-verification-key-file "$KEYS_DIR/payment.vkey" \
   --testnet-magic 4 \
   --out-file "$KEYS_DIR/payment.addr"
 
-# Convert it to hex (genesis requires hex key)
-CBOR_ADDRESS=$(xxd -p -c 200 "$KEYS_DIR/payment.addr")
+# Convert binary → hex using Python
+CBOR_ADDRESS=$(python3 - <<EOF
+import sys, binascii
+data = open("$KEYS_DIR/payment.addr","rb").read()
+print(binascii.hexlify(data).decode())
+EOF
+)
+
 echo "Genesis CBOR Address: $CBOR_ADDRESS"
-
-
 ############################################################
 # INSERT INITIAL FUNDS INTO SHELLEY GENESIS
 ############################################################
