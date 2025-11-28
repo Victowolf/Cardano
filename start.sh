@@ -15,30 +15,39 @@ rm -rf "$RAW_CONFIG_DIR" "$RUN_CONFIG_DIR" "$DB_DIR" "$KEYS_DIR"
 mkdir -p "$RAW_CONFIG_DIR" "$RUN_CONFIG_DIR" "$DB_DIR" "$KEYS_DIR"
 
 ############################################################
-# DOWNLOAD CARDANO BINARY RELEASE
+# FORCE NEW BINARY PATH (important!)
+############################################################
+export PATH="/usr/local/bin:$PATH"
+
+############################################################
+# DOWNLOAD CARDANO 10.1.4 (node + cli)
 ############################################################
 
-if ! command -v cardano-node >/dev/null 2>&1; then
+if ! cardano-node version 2>/dev/null | grep -q "${CARDANO_VERSION}"; then
     echo ">>> Downloading Cardano Node ${CARDANO_VERSION}"
     wget -q "$RELEASE_URL" -O "$TARBALL"
     tar -xf "$TARBALL"
 
-    mv bin/cardano-node /usr/local/bin/
-    mv bin/cardano-cli /usr/local/bin/
+    # Install binaries and ensure they override system CLI
+    install -m 755 bin/cardano-node /usr/local/bin/cardano-node
+    install -m 755 bin/cardano-cli /usr/local/bin/cardano-cli
 
     cp -r share/sanchonet/* "$RAW_CONFIG_DIR/"
 
     rm -rf bin lib share "$TARBALL"
 fi
 
+echo ">>> cardano-cli version:"
+cardano-cli version
+
 ############################################################
-# COPY SANCHONET RAW CONFIG INTO RUN CONFIG DIR
+# COPY RAW SANCHONET CONFIG INTO RUN CONFIG DIR
 ############################################################
 
 cp "$RAW_CONFIG_DIR/"* "$RUN_CONFIG_DIR/"
 
 ############################################################
-# GENERATE PAYMENT KEYS + SHELLEY ADDRESS
+# GENERATE PAYMENT KEYS
 ############################################################
 
 cardano-cli address key-gen \
@@ -53,26 +62,27 @@ ADDRESS=$(cardano-cli address build \
 echo "Funding Address (bech32): $ADDRESS"
 
 ############################################################
-# GENERATE REAL CBOR SHELLEY ADDRESS (WORKS ON ALL VERSIONS)
+# GENERATE TRUE CBOR SHELLEY ADDRESS (BINARY)
+# This is the FIX that makes genesis accept the address.
 ############################################################
 
-# This produces RAW CBOR binary (correct)
-cardano-cli shelley address build \
+cardano-cli address build \
   --payment-verification-key-file "$KEYS_DIR/payment.vkey" \
   --testnet-magic 4 \
   --out-file "$KEYS_DIR/payment.addr"
 
-# Convert CBOR binary → hex using Python
+# Convert CBOR binary → hex
 CBOR_ADDRESS=$(python3 - <<EOF
 import binascii
-data = open("$KEYS_DIR/payment.addr","rb").read()
-print(binascii.hexlify(data).decode())
+d=open("$KEYS_DIR/payment.addr","rb").read()
+print(binascii.hexlify(d).decode())
 EOF
 )
 
 echo "Genesis CBOR Address: $CBOR_ADDRESS"
+
 ############################################################
-# INSERT INITIAL FUNDS INTO SHELLEY GENESIS
+# INSERT INITIAL FUNDS INTO GENESIS (VALID ADDRESS NOW!)
 ############################################################
 
 jq ".initialFunds = {\"$CBOR_ADDRESS\": {\"lovelace\": 1000000000000}}" \
@@ -87,8 +97,7 @@ mv "$RUN_CONFIG_DIR/tmp.json" "$RUN_CONFIG_DIR/shelley-genesis.json"
 GENESIS_HASH=$(python3 - <<EOF
 import hashlib
 data = open("$RUN_CONFIG_DIR/shelley-genesis.json","rb").read()
-h = hashlib.blake2b(digest_size=32)
-h.update(data)
+h = hashlib.blake2b(digest_size=32); h.update(data)
 print(h.hexdigest())
 EOF
 )
@@ -119,7 +128,7 @@ cardano-node run \
 echo ""
 echo "==============================="
 echo "    SANCHONET NODE STARTED"
-echo "==============================="
+==============================
 echo "Funding Address (bech32): $ADDRESS"
 echo "Genesis CBOR Address:     $CBOR_ADDRESS"
 echo "ShelleyGenesisHash:       $GENESIS_HASH"
