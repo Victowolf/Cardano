@@ -77,11 +77,6 @@ cat > "$CONFIG_DIR/genesis.json" <<EOF
   "staking": { "pools": {}, "stake": {} }
 }
 EOF
-
-echo "=== DEBUG — PRINTING node-config.json LOADED BY NODE ==="
-cat "$CONFIG_DIR/node-config.json"
-echo "=========================================================="
-
 ############################################################
 # NODE CONFIG (REQUIRED FOR CARDANO-NODE 10.X)
 ############################################################
@@ -108,6 +103,11 @@ cat > "$CONFIG_DIR/node-config.json" <<EOF
   "LogMetrics": false
 }
 EOF
+
+echo "=== DEBUG — PRINTING node-config.json LOADED BY NODE ==="
+cat "$CONFIG_DIR/node-config.json"
+echo "=========================================================="
+
 ############################################################
 # KEYS + FUND GENESIS
 ############################################################
