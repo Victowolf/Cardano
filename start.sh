@@ -97,13 +97,24 @@ cat > "$CONFIG_DIR/config.json" <<JSON
 {
   "Protocol": "Cardano",
   "NodeLoggingFormat": "Json",
+
   "ByronGenesisFile": "byron-genesis.json",
   "ShelleyGenesisFile": "shelley-genesis.json",
   "AlonzoGenesisFile": "alonzo-genesis.json",
   "ConwayGenesisFile": "conway-genesis.json",
-  "AcceptableNetworkMagic": $NETWORK_MAGIC
+
+  "AcceptableNetworkMagic": $NETWORK_MAGIC,
+  "RequiresNetworkMagic": "RequiresMagic",
+
+  "LastKnownBlockVersion-Major": 0,
+  "LastKnownBlockVersion-Minor": 0,
+  "LastKnownBlockVersion-Alt": 0,
+
+  "ApplicationName": "cardano-node",
+  "ApplicationVersion": 1
 }
 JSON
+
 
 echo ">>> Computing genesis hash"
 /usr/bin/env python3 - <<PY
