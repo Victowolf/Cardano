@@ -17,6 +17,7 @@ mkdir -p "$RAW_CONFIG_DIR" "$RUN_CONFIG_DIR" "$DB_DIR" "$KEYS_DIR"
 ############################################################
 # DOWNLOAD BINARIES
 ############################################################
+
 if ! command -v cardano-node >/dev/null 2>&1; then
     echo ">>> Downloading Cardano Node ${CARDANO_VERSION}"
     wget -q "$RELEASE_URL" -O "$TARBALL"
@@ -30,96 +31,86 @@ if ! command -v cardano-node >/dev/null 2>&1; then
     rm -rf bin lib share "$TARBALL"
 fi
 
-echo ">>> Extracted official Sanchonet configs"
+############################################################
+# COPY ONLY REQUIRED FILES FOR CLEAN CONFIG
+############################################################
 
-############################################################
-# COPY NECESSARY CONFIG FILES
-############################################################
-cp "$RAW_CONFIG_DIR/config.json"          "$RUN_CONFIG_DIR/"
-cp "$RAW_CONFIG_DIR/topology.json"        "$RUN_CONFIG_DIR/"
-cp "$RAW_CONFIG_DIR/byron-genesis.json"   "$RUN_CONFIG_DIR/"
+cp "$RAW_CONFIG_DIR/config.json"         "$RUN_CONFIG_DIR/"
+cp "$RAW_CONFIG_DIR/topology.json"       "$RUN_CONFIG_DIR/"
+cp "$RAW_CONFIG_DIR/byron-genesis.json"  "$RUN_CONFIG_DIR/"
 cp "$RAW_CONFIG_DIR/shelley-genesis.json" "$RUN_CONFIG_DIR/"
-cp "$RAW_CONFIG_DIR/alonzo-genesis.json"  "$RUN_CONFIG_DIR/"
-cp "$RAW_CONFIG_DIR/conway-genesis.json"  "$RUN_CONFIG_DIR/"
-
-echo ">>> Clean config generated in /app/config"
+cp "$RAW_CONFIG_DIR/alonzo-genesis.json" "$RUN_CONFIG_DIR/"
+cp "$RAW_CONFIG_DIR/conway-genesis.json" "$RUN_CONFIG_DIR/"
 
 ############################################################
-# GENERATE WALLET (BECH32)
+# GENERATE WALLET
 ############################################################
-echo ">>> Generating wallet keys"
 
 cardano-cli address key-gen \
   --verification-key-file "$KEYS_DIR/payment.vkey" \
-  --signing-key-file      "$KEYS_DIR/payment.skey"
+  --signing-key-file "$KEYS_DIR/payment.skey"
 
 cardano-cli address build \
   --payment-verification-key-file "$KEYS_DIR/payment.vkey" \
   --testnet-magic 4 \
-  --out-file "$KEYS_DIR/payment.addr.bech32"
+  > "$KEYS_DIR/payment.addr"
 
-BECH32_ADDR=$(cat "$KEYS_DIR/payment.addr.bech32")
-echo "Bech32 Address (human readable): $BECH32_ADDR"
-
-############################################################
-# CONVERT BECH32 → RAW HEX FOR GENESIS
-############################################################
-echo ">>> Converting bech32 → hex (genesis-compatible address)"
-
-RAW_ADDR=$(cardano-cli address info --address "$BECH32_ADDR" \
-           | jq -r '.base16')
-
-if [ -z "$RAW_ADDR" ] || ! echo "$RAW_ADDR" | grep -Eq '^[0-9a-f]+$'; then
-    echo "❌ ERROR: cardano-cli failed to produce valid hex address"
-    echo "cardano-cli output:"
-    cardano-cli address info --address "$BECH32_ADDR"
-    exit 1
-fi
-
-echo "RAW HEX Address for genesis: $RAW_ADDR"
+ADDRESS=$(cat "$KEYS_DIR/payment.addr")
+echo "Funding address: $ADDRESS"
 
 ############################################################
-# UPDATE SHELLEY GENESIS WITH INITIAL FUNDS (HEX ADDRESS)
+# MODIFY SHELLEY GENESIS (ADD INITIAL FUNDS)
 ############################################################
-echo ">>> Adding initial funds to shelley-genesis.json"
 
-jq ".initialFunds += {\"$RAW_ADDR\": {\"lovelace\": 1000000000000}}" \
-   "$RUN_CONFIG_DIR/shelley-genesis.json" \
-   > "$RUN_CONFIG_DIR/tmp.json"
+jq ".initialFunds += {\"$ADDRESS\": {\"lovelace\": 1000000000000}}" \
+   "$RUN_CONFIG_DIR/shelley-genesis.json" > "$RUN_CONFIG_DIR/tmp.json"
 
 mv "$RUN_CONFIG_DIR/tmp.json" "$RUN_CONFIG_DIR/shelley-genesis.json"
 
 ############################################################
-# COMPUTE BLAKE2b GENESIS HASH (REQUIRED)
+# TRUE BLAKE2B SHELLEY GENESIS HASH FUNCTION
 ############################################################
-echo ">>> Computing correct BLAKE2b Shelley Genesis Hash"
 
-NEW_HASH=$(cardano-cli genesis hash --shelley-genesis-file "$RUN_CONFIG_DIR/shelley-genesis.json")
+compute_hash() {
+  local f="$1"
 
-if [ -z "$NEW_HASH" ]; then
-    echo "❌ ERROR: Could not compute Shelley genesis hash"
-    exit 1
+  # Try ALL known hash commands until one succeeds.
+  cardano-cli conway genesis hash --genesis "$f"        2>/dev/null && return 0
+  cardano-cli genesis hash --genesis "$f"               2>/dev/null && return 0
+  cardano-cli shelley genesis hash --genesis "$f"       2>/dev/null && return 0
+  cardano-cli genesis hash --shelley-genesis-file "$f"  2>/dev/null && return 0
+  cardano-cli governance hash --file "$f"               2>/dev/null && return 0
+
+  return 1
+}
+
+echo ">>> Computing correct BLAKE2b Shelley genesis hash..."
+if ! NEW_HASH=$(compute_hash "$RUN_CONFIG_DIR/shelley-genesis.json"); then
+  echo ""
+  echo "❌ ERROR: cardano-cli does not support expected genesis hash commands."
+  echo "Dump of available commands:"
+  cardano-cli --help
+  exit 1
 fi
 
 echo "Correct ShelleyGenesisHash = $NEW_HASH"
 
 ############################################################
-# PATCH CONFIG.JSON
+# PATCH THE CORRECT FIELD IN config.json
 ############################################################
-echo ">>> Patching config.json with new ShelleyGenesisHash"
 
 jq ".ShelleyGenesisHash = \"$NEW_HASH\"" \
-   "$RUN_CONFIG_DIR/config.json" \
-   > "$RUN_CONFIG_DIR/tmp.json"
+   "$RUN_CONFIG_DIR/config.json" > "$RUN_CONFIG_DIR/tmp.json"
 
 mv "$RUN_CONFIG_DIR/tmp.json" "$RUN_CONFIG_DIR/config.json"
 
-echo ">>> FINAL config.json:"
+echo ">>> FINAL PATCHED CONFIG.JSON:"
 cat "$RUN_CONFIG_DIR/config.json"
 
 ############################################################
 # START NODE
 ############################################################
+
 echo ">>> Starting cardano-node..."
 
 cardano-node run \
@@ -132,12 +123,11 @@ cardano-node run \
   > "$BASE_DIR/node.log" 2>&1 &
 
 echo ""
-echo "================================="
-echo "     SANCHONET NODE STARTED       "
-echo "================================="
-echo "Wallet (BECH32): $BECH32_ADDR"
-echo "Wallet (HEX):    $RAW_ADDR"
-echo "Logs:            $BASE_DIR/node.log"
+echo "==============================="
+echo "    SANCHONET NODE STARTED     "
+echo "==============================="
+echo "Address: $ADDRESS"
+echo "Logs:    $BASE_DIR/node.log"
 echo ""
 
 tail -f "$BASE_DIR/node.log"
