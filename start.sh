@@ -32,17 +32,12 @@ if ! command -v cardano-node >/dev/null 2>&1; then
     echo ">>> Extracting..."
     tar -xf "$TARBALL"
 
-    # Detect extracted directory automatically
-    EXTRACTED_DIR=$(tar -tf "$TARBALL" | head -n 1 | cut -d/ -f1)
-
-    echo ">>> Extracted directory: $EXTRACTED_DIR"
-
-    # Move binaries
-    mv "${EXTRACTED_DIR}/bin/cardano-node" "$BIN_DIR/"
-    mv "${EXTRACTED_DIR}/bin/cardano-cli" "$BIN_DIR/"
+    echo ">>> Installing cardano-node and cardano-cli"
+    mv bin/cardano-node "$BIN_DIR/"
+    mv bin/cardano-cli "$BIN_DIR/"
 
     echo ">>> Cleaning up..."
-    rm -rf "$EXTRACTED_DIR"
+    rm -rf bin lib share
     rm "$TARBALL"
 fi
 
