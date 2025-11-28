@@ -19,14 +19,14 @@ rm -rf "$RAW_CONFIG_DIR" "$RUN_CONFIG_DIR" "$DB_DIR" "$KEYS_DIR"
 mkdir -p "$RAW_CONFIG_DIR" "$RUN_CONFIG_DIR" "$DB_DIR" "$KEYS_DIR"
 
 ############################################################
-# INSTALL PYTHON CBOR ENCODER
+# INSTALL PYTHON DEPENDENCIES
 ############################################################
 
 pip install cbor2 >/dev/null 2>&1 || \
 (apt-get update && apt-get install -y python3-pip && pip3 install cbor2)
 
 ############################################################
-# DOWNLOAD BINARIES + SANCHONET CONFIG
+# DOWNLOAD CARDANO BINARIES + SANCHONET CONFIG
 ############################################################
 
 if ! command -v cardano-node >/dev/null 2>&1; then
@@ -36,7 +36,6 @@ if ! command -v cardano-node >/dev/null 2>&1; then
 
     mv bin/cardano-node /usr/local/bin/
     mv bin/cardano-cli  /usr/local/bin/
-
     cp -r share/sanchonet/* "$RAW_CONFIG_DIR/"
 
     rm -rf bin lib share "$TARBALL"
@@ -54,55 +53,52 @@ cp "$RAW_CONFIG_DIR/alonzo-genesis.json"  "$RUN_CONFIG_DIR/"
 cp "$RAW_CONFIG_DIR/conway-genesis.json"  "$RUN_CONFIG_DIR/"
 
 ############################################################
-# GENERATE WALLET PAIR
+# GENERATE PAYMENT KEYPAIR
 ############################################################
 
 cardano-cli address key-gen \
   --verification-key-file "$KEYS_DIR/payment.vkey" \
   --signing-key-file "$KEYS_DIR/payment.skey"
 
-# For human usage (bech32)
+# Human-friendly address (bech32)
 BECH32_ADDR=$(cardano-cli address build \
   --payment-verification-key-file "$KEYS_DIR/payment.vkey" \
   --testnet-magic 4)
 
 echo "Human Address (bech32): $BECH32_ADDR"
 
-# Get 28-byte payment keyhash
-KEYHASH=$(cardano-cli address key-hash \
-  --payment-verification-key-file "$KEYS_DIR/payment.vkey")
-
-echo "Payment keyhash: $KEYHASH"
-
 ############################################################
-# PYTHON: GENERATE GENESIS-VALID HEX ENTERPRISE ADDRESS
+# PYTHON: COMPUTE CORRECT ENTERPRISE HEX ADDRESS FOR GENESIS
 ############################################################
-# Enterprise address structure:
-#   raw_bytes = header || keyhash
-#
-# header = 0x60  (enterprise address, keyhash, testnet network id=0)
-# final genesis format = CBOR(bytes(raw_bytes)) in HEX
 
 GENESIS_HEX=$(python3 - <<PY
-import binascii, cbor2
+import hashlib, binascii, cbor2, json
 
-# Remove leading 0x if present:
-keyhash = "${KEYHASH}".replace("0x", "")
-keyhash_bytes = binascii.unhexlify(keyhash)
+# Load vkey from JSON
+with open("${KEYS_DIR}/payment.vkey") as f:
+    vkey_json = json.load(f)
+vkey_hex = vkey_json["cborHex"]
+vkey_bytes = binascii.unhexlify(vkey_hex)
 
-header = bytes([0x60])    # enterprise addr + testnet
-addr_raw = header + keyhash_bytes
+# Blake2b-224 hash = 28 bytes
+keyhash = hashlib.blake2b(vkey_bytes, digest_size=28).digest()
 
+# Enterprise address (payment only, testnet network ID = 0)
+header = bytes([0x60])      # 0x60 = enterprise + testnet
+addr_raw = header + keyhash # 1 + 28 = 29 bytes
+
+# Wrap in CBOR bytestring → 581d...
 addr_cbor = cbor2.dumps(addr_raw)
 
+# Output hex
 print(binascii.hexlify(addr_cbor).decode())
 PY
 )
 
-echo "Genesis HEX Addr: $GENESIS_HEX"
+echo "Genesis HEX Address: $GENESIS_HEX"
 
 ############################################################
-# ADD INITIAL FUNDS
+# INSERT INITIAL FUNDS INTO GENESIS
 ############################################################
 
 jq ".initialFunds += {\"$GENESIS_HEX\": {\"lovelace\": 1000000000000}}" \
@@ -121,7 +117,7 @@ GENESIS_HASH=$(cardano-cli conway genesis hash \
 echo "Genesis Hash: $GENESIS_HASH"
 
 ############################################################
-# PATCH CONFIG.JSON
+# PATCH CONFIG.JSON WITH NEW GENESIS HASH
 ############################################################
 
 jq ".ShelleyGenesisHash = \"$GENESIS_HASH\"" \
@@ -133,7 +129,7 @@ mv "$RUN_CONFIG_DIR/tmp.json" "$RUN_CONFIG_DIR/config.json"
 # START NODE
 ############################################################
 
-echo ">>> Starting node..."
+echo ">>> Starting cardano-node..."
 
 cardano-node run \
   --topology "$RUN_CONFIG_DIR/topology.json" \
@@ -145,6 +141,10 @@ cardano-node run \
   > "$BASE_DIR/node.log" 2>&1 &
 
 sleep 2
+
+############################################################
+# OUTPUT INFO
+############################################################
 
 echo ""
 echo "==============================="
