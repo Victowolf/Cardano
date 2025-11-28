@@ -76,7 +76,7 @@ mv "$CONFIG_DIR/tmp.json" "$CONFIG_DIR/shelley-genesis.json"
 ############################################################
 
 echo ">>> Computing updated genesis hash"
-NEW_HASH=$(cardano-cli governance genesis hash --genesis "$CONFIG_DIR/shelley-genesis.json")
+NEW_HASH=$(cardano-cli hash file --file "$CONFIG_DIR/shelley-genesis.json")
 
 echo ">>> Updating hash in config.json"
 jq ".npcShelleyGenesisFileHash = \"$NEW_HASH\"" \
