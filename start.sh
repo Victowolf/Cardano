@@ -58,12 +58,19 @@ BECH32_ADDR=$(cardano-cli address build \
 echo "Funding address (bech32): $BECH32_ADDR"
 
 # HEX address required by genesis initialFunds
-GENESIS_HEX=$(cardano-cli address build \
-  --payment-verification-key-file "$KEYS_DIR/payment.vkey" \
-  --testnet-magic 4 \
-  --output-format hex)
+# Convert vkey -> payment keyhash
+KEYHASH=$(cardano-cli address key-hash \
+  --payment-verification-key-file "$KEYS_DIR/payment.vkey")
 
-echo "Genesis-compatible HEX address: $GENESIS_HEX"
+# Use cardano-address to build hex Shelley address
+GENESIS_HEX=$(echo $KEYHASH | \
+  cardano-address address payment \
+    --network-tag testnet \
+  | cardano-address address inspect \
+  | jq -r '.address_hex')
+
+echo "Genesis HEX: $GENESIS_HEX"
+
 
 ############################################################
 # ADD INITIAL FUNDS USING HEX ADDRESS (REQUIRED)
