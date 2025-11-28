@@ -41,7 +41,7 @@ cardano-cli address key-gen \
 
 cardano-cli address build \
   --payment-verification-key-file "$KEYS_DIR/payment.vkey" \
-  --testnet-magic $(jq .protocolParams.protocolMagic "$CONFIG_DIR/shelley-genesis.json") \
+  --testnet-magic 4 \
   > "$KEYS_DIR/payment.addr"
 
 ADDRESS=$(cat "$KEYS_DIR/payment.addr")
