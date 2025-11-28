@@ -109,7 +109,7 @@ cardano-cli address key-gen \
 
 cardano-cli address build \
   --payment-verification-key-file "$KEYS_DIR/payment.vkey" \
-  --network-magic $NETWORK_MAGIC \
+  --testnet-magic $NETWORK_MAGIC \
   > "$KEYS_DIR/payment.addr"
 
 ADDRESS=$(cat "$KEYS_DIR/payment.addr")
