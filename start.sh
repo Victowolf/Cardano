@@ -135,48 +135,77 @@ EOF
 
 echo "Genesis CBOR Address: $CBOR_ADDRESS"
 
-# ---------------------------
-# Prepare shelley-genesis.json (minimal working genesis for private chain)
-# We'll create a simple shelley-genesis.json that includes initialFunds and reasonable params.
-# This genesis is minimal for dev; for production you must craft accurate epoch/slot settings, fees, etc.
-# ---------------------------
-echo ">>> Writing shelley-genesis.json (private dev)"
+############################################################
+# WRITE A MODERN SHELLEY GENESIS (Cardano 10.x Compatible)
+############################################################
+
+SYSTEM_START=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
 cat > "$RUN_CONFIG_DIR/shelley-genesis.json" <<JSON
 {
-  "activeSlotsCoefficient": 0.1,
-  "securityParam": 2160,
+  "activeSlotsCoeff": 0.1,
   "updateQuorum": 5,
-  "maxLovelaceSupply": 9223372036854775807,
   "networkId": "Testnet",
   "networkMagic": $NETWORK_MAGIC,
   "epochLength": 432000,
-  "systemStart": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
+  "systemStart": "$SYSTEM_START",
   "slotsPerKESPeriod": 129600,
-  "maxKESEvolutions": 62,
   "slotLength": 1,
-  "maxMajorPV": 100,
+  "maxKESEvolutions": 62,
+  "securityParam": 2160,
+
+  "maxLovelaceSupply": 45000000000000000,
+
   "protocolParams": {
     "minFeeA": 44,
     "minFeeB": 155381,
     "maxBlockBodySize": 65536,
     "maxTxSize": 16384,
     "maxBlockHeaderSize": 1100,
+
     "keyDeposit": 2000000,
     "poolDeposit": 500000000,
     "eMax": 18,
     "nOpt": 150,
     "poolPledgeInfluence": 0.3,
     "monetaryExpansion": 0.003,
-    "treasuryCut": 0.20
+    "treasuryCut": 0.20,
+
+    "protocolVersion": {
+      "major": 10,
+      "minor": 0
+    },
+
+    "maxBlockExecutionUnits": {
+      "memory": 10000000,
+      "steps": 5000000000
+    },
+    "maxTxExecutionUnits": {
+      "memory": 5000000,
+      "steps": 2000000000
+    },
+
+    "prices": {
+      "memory": 0.001,
+      "steps": 0.000000001
+    },
+
+    "maxValueSize": 5000,
+
+    "collateralPercentage": 150,
+    "maxCollateralInputs": 3
   },
+
   "initialFunds": {
     "$CBOR_ADDRESS": { "lovelace": $INITIAL_LOVELACE }
   },
-  "protocolConsts": {},
-  "initialStake": {},
-  "genDelegs": {},
-  "genDelegsNext": {}
+
+  "staking": {
+    "pools": {},
+    "stake": {}
+  },
+
+  "genDelegs": {}
 }
 JSON
 
