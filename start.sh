@@ -46,7 +46,18 @@ cp "$RAW_CONFIG_DIR/alonzo-genesis.json" "$RUN_CONFIG_DIR/"
 cp "$RAW_CONFIG_DIR/conway-genesis.json" "$RUN_CONFIG_DIR/"
 
 # FORCE PRIVATE TOPOLOGY
-echo '{ "Producers": [] }' > "$RUN_CONFIG_DIR/topology.json"
+cat > "$RUN_CONFIG_DIR/topology.json" <<EOF
+{
+  "localRoots": [
+    {
+      "accessPoints": [],
+      "advertise": false
+    }
+  ],
+  "publicRoots": [],
+  "useLedgerPeers": false
+}
+EOF
 
 ############################################################
 # GENERATE PAYMENT KEYPAIR (just for user wallet)
