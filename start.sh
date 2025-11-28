@@ -16,7 +16,7 @@ mkdir -p "$RAW_CONFIG_DIR" "$RUN_CONFIG_DIR" "$DB_DIR" "$KEYS_DIR"
 
 
 ############################################################
-# DOWNLOAD BINARIES
+# DOWNLOAD CARDANO BINARY RELEASE
 ############################################################
 
 if ! command -v cardano-node >/dev/null 2>&1; then
@@ -34,14 +34,14 @@ fi
 
 
 ############################################################
-# COPY NETWORK CONFIG
+# COPY SANCHONET RAW CONFIG INTO RUN CONFIG DIR
 ############################################################
 
 cp "$RAW_CONFIG_DIR/"* "$RUN_CONFIG_DIR/"
 
 
 ############################################################
-# GENERATE KEYS + BECH32 ADDRESS
+# GENERATE PAYMENT KEYS + BECH32 ADDRESS
 ############################################################
 
 cardano-cli address key-gen \
@@ -56,12 +56,13 @@ echo "Funding Address (bech32): $ADDRESS"
 
 
 ############################################################
-# GENERATE CBOR-ENCODED ADDRESS FOR GENESIS
+# BUILD CBOR-ENCODED GENESIS ADDRESS
 ############################################################
 
 KEYHASH=$(cardano-cli address key-hash \
   --payment-verification-key-file "$KEYS_DIR/payment.vkey")
 
+# CBOR address = 82 581c <keyhash> 01
 CBOR_ADDRESS=$(python3 - <<EOF
 keyhash="$KEYHASH"
 cbor = "82" + "581c" + keyhash + "01"
@@ -73,7 +74,7 @@ echo "Genesis CBOR Address: $CBOR_ADDRESS"
 
 
 ############################################################
-# INSERT INITIAL FUNDS INTO GENESIS
+# INSERT INITIAL FUNDS INTO SHELLEY GENESIS
 ############################################################
 
 jq ".initialFunds = {\"$CBOR_ADDRESS\": {\"lovelace\": 1000000000000}}" \
@@ -83,21 +84,28 @@ mv "$RUN_CONFIG_DIR/tmp.json" "$RUN_CONFIG_DIR/shelley-genesis.json"
 
 
 ############################################################
-# COMPUTE GENESIS HASH (blake2b-256)
+# COMPUTE SHELLEY GENESIS HASH USING PYTHON BLAKE2B-256
 ############################################################
 
-GENESIS_HASH=$(openssl dgst -blake2b256 "$RUN_CONFIG_DIR/shelley-genesis.json" | awk '{print $2}')
+GENESIS_HASH=$(python3 - <<EOF
+import hashlib
+data = open("$RUN_CONFIG_DIR/shelley-genesis.json","rb").read()
+h = hashlib.blake2b(digest_size=32)
+h.update(data)
+print(h.hexdigest())
+EOF
+)
 
 echo "Correct ShelleyGenesisHash = $GENESIS_HASH"
 
 jq ".ShelleyGenesisHash = \"$GENESIS_HASH\"" \
-   "$RUN_CONFIG_DIR/config.json" > "$RUN_CONFIG_DIR/tmp.json"
+  "$RUN_CONFIG_DIR/config.json" > "$RUN_CONFIG_DIR/tmp.json"
 
 mv "$RUN_CONFIG_DIR/tmp.json" "$RUN_CONFIG_DIR/config.json"
 
 
 ############################################################
-# START NODE
+# START CARDANO NODE
 ############################################################
 
 echo ">>> Starting cardano-node..."
@@ -110,7 +118,6 @@ cardano-node run \
   --port 3001 \
   --config "$RUN_CONFIG_DIR/config.json" \
   > "$BASE_DIR/node.log" 2>&1 &
-
 
 echo ""
 echo "==============================="
