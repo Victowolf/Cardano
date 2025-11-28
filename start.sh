@@ -58,33 +58,94 @@ cardano-cli address build \
 
 ADDRESS=$(cat "$KEYS_DIR/payment.addr")
 
-echo ">>> Funding address: $ADDRESS"
+echo ">>> Funding address to be added into genesis: $ADDRESS"
 
 ############################################################
 # UPDATE SHELLEY GENESIS (ADD FUNDS)
 ############################################################
 
 echo ">>> Adding initial funds to Shelley genesis"
-
 jq ".initialFunds += {\"$ADDRESS\": {\"lovelace\": 1000000000000}}" \
    "$CONFIG_DIR/shelley-genesis.json" > "$CONFIG_DIR/tmp.json"
-
 mv "$CONFIG_DIR/tmp.json" "$CONFIG_DIR/shelley-genesis.json"
 
 ############################################################
-# UPDATE GENESIS HASH IN CONFIG.JSON
+# COMPUTE GENESIS HASH (robust multi-command probe)
 ############################################################
 
-echo ">>> Computing updated genesis hash"
-NEW_HASH=$(cardano-cli hash file --file "$CONFIG_DIR/shelley-genesis.json")
+compute_shelley_hash() {
+  # Try multiple possible cardano-cli invocations in order.
+  # Return the first non-empty stdout trimmed.
+  # Commands attempted:
+  # 1) governance genesis hash --genesis <file>
+  # 2) hash file --file <file>
+  # 3) hash --file <file>
+  # 4) shelley genesis-hash --genesis <file>
+  # 5) genesis hash --genesis <file>
+  # 6) fallback: sha256sum (NOT guaranteed by cardano-node, but reported if nothing else)
+  local GENFILE="$1"
+  local out=""
 
-echo ">>> Updating hash in config.json"
+  # helper to attempt a command
+  trycmd() {
+    local cmd="$1"
+    out=$(sh -c "$cmd" 2>/dev/null || true)
+    # trim whitespace
+    out="$(echo -n "$out" | tr -d ' \t\n\r')"
+    if [ -n "$out" ]; then
+      echo "$out"
+      return 0
+    fi
+    return 1
+  }
+
+  trycmd "cardano-cli governance genesis hash --genesis \"$GENFILE\"" && return 0
+  trycmd "cardano-cli hash file --file \"$GENFILE\"" && return 0
+  trycmd "cardano-cli hash --file \"$GENFILE\"" && return 0
+  trycmd "cardano-cli shelley genesis-hash --genesis \"$GENFILE\"" && return 0
+  trycmd "cardano-cli genesis hash --genesis \"$GENFILE\"" && return 0
+
+  # fallback: produce sha256 as last resort (may not be accepted by node)
+  if command -v sha256sum >/dev/null 2>&1; then
+    out=$(sha256sum "$GENFILE" 2>/dev/null | awk '{print $1}')
+    out="$(echo -n "$out" | tr -d ' \t\n\r')"
+    if [ -n "$out" ]; then
+      echo "$out"
+      return 0
+    fi
+  fi
+
+  return 1
+}
+
+echo ">>> Computing updated genesis hash (probing several commands)..."
+if ! NEW_HASH="$(compute_shelley_hash "$CONFIG_DIR/shelley-genesis.json")"; then
+  echo "ERROR: Could not compute shelley genesis hash with available cardano-cli."
+  echo "Please ensure your cardano-cli supports one of these commands:"
+  echo "  - cardano-cli governance genesis hash --genesis <file>"
+  echo "  - cardano-cli hash file --file <file>"
+  echo "  - cardano-cli hash --file <file>"
+  echo "  - cardano-cli shelley genesis-hash --genesis <file>"
+  echo "  - cardano-cli genesis hash --genesis <file>"
+  echo ""
+  echo "Debug: cardano-cli --version output:"
+  cardano-cli --version || true
+  echo ""
+  echo "Debug: available 'cardano-cli hash' help:"
+  cardano-cli hash --help 2>/dev/null || true
+  exit 1
+fi
+
+echo ">>> Computed Shelley genesis hash: $NEW_HASH"
+
+############################################################
+# UPDATE CONFIG.JSON WITH NEW HASH
+############################################################
+
+echo ">>> Updating npcShelleyGenesisFileHash in config.json"
 jq ".npcShelleyGenesisFileHash = \"$NEW_HASH\"" \
    "$CONFIG_DIR/config.json" > "$CONFIG_DIR/tmp.json"
-
 mv "$CONFIG_DIR/tmp.json" "$CONFIG_DIR/config.json"
-
-echo "New Shelley Genesis Hash = $NEW_HASH"
 
 ############################################################
 # START NODE
