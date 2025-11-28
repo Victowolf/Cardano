@@ -81,7 +81,7 @@ JSON
 }
 JSON
 
-  # Minimal byron/alonzo/conway genesis placeholders
+  # Minimal byron/alonz/chain genesis placeholders (we'll focus on shelley)
   cp /dev/null "$RAW_CONFIG_DIR/byron-genesis.json" || true
   cp /dev/null "$RAW_CONFIG_DIR/alonzo-genesis.json" || true
   cp /dev/null "$RAW_CONFIG_DIR/conway-genesis.json" || true
@@ -114,11 +114,15 @@ KEYHASH=$(cardano-cli address key-hash \
   --payment-verification-key-file "$KEYS_DIR/payment.vkey")
 
 CBOR_ADDRESS=$(python3 - <<EOF
-import binascii
+import binascii, sys
 keyhash = "$KEYHASH"
-# Use network_id = 0 for our private dev addresses (header = 0x60)
+
+# For our private chain choose a network id. For dev single-node we set network_id = 0 (common)
+# but network magic identifies the chain for the CLI node run.
+# header = 0x60 | network_id  # here use 0 (payment address)
 network_id = 0x00
 header = 0x60 | network_id
+
 cbor = bytearray()
 cbor.append(0x82)       # array(2)
 cbor.append(header)     # address header
@@ -152,7 +156,7 @@ cat > "$RUN_CONFIG_DIR/shelley-genesis.json" <<JSON
 
   "maxLovelaceSupply": 45000000000000000,
 
-  "protocolParams": {
+    "protocolParams": {
     "minFeeA": 44,
     "minFeeB": 155381,
     "maxBlockBodySize": 65536,
@@ -174,32 +178,32 @@ cat > "$RUN_CONFIG_DIR/shelley-genesis.json" <<JSON
     "treasuryCut": 0.20,
 
     "decentralisationParam": 1.0,
-    "extraEntropy": { "neutral": true },
+    "extraEntropy": { "tag": "NeutralNonce" },
 
     "protocolVersion": {
-      "major": 10,
-      "minor": 0
+        "major": 10,
+        "minor": 0
     },
 
     "maxBlockExecutionUnits": {
-      "memory": 10000000,
-      "steps": 5000000000
+        "memory": 10000000,
+        "steps": 5000000000
     },
     "maxTxExecutionUnits": {
-      "memory": 5000000,
-      "steps": 2000000000
+        "memory": 5000000,
+        "steps": 2000000000
     },
 
     "prices": {
-      "memory": 0.001,
-      "steps": 0.000000001
+        "memory": 0.001,
+        "steps": 0.000000001
     },
 
     "maxValueSize": 5000,
 
     "collateralPercentage": 150,
     "maxCollateralInputs": 3
-  },
+    },
 
   "initialFunds": {
     "$CBOR_ADDRESS": { "lovelace": $INITIAL_LOVELACE }
@@ -234,12 +238,11 @@ if [ ! -f "$RUN_CONFIG_DIR/config.json" ]; then
 JSON
 fi
 
-# Compute ShelleyGenesisHash (blake2b-256) — CORRECT: hash of the file content
+# Compute ShelleyGenesisHash (blake2b-256)
 GENESIS_HASH=$(python3 - <<EOF
 import hashlib
 d = open("$RUN_CONFIG_DIR/shelley-genesis.json","rb").read()
-h = hashlib.blake2b(digest_size=32)
-h.update(d)
+h = hashlib.blake2b(digest_size=32); h.update(d)
 print(h.hexdigest())
 EOF
 )
@@ -250,6 +253,7 @@ if command -v jq >/dev/null 2>&1; then
     "$RUN_CONFIG_DIR/config.json" > "$RUN_CONFIG_DIR/tmp.json"
   mv "$RUN_CONFIG_DIR/tmp.json" "$RUN_CONFIG_DIR/config.json"
 else
+  # crude replace (works for our minimal config)
   python3 - <<PY
 import json
 p="$RUN_CONFIG_DIR/config.json"
