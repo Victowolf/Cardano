@@ -78,6 +78,10 @@ cat > "$CONFIG_DIR/genesis.json" <<EOF
 }
 EOF
 
+echo "=== DEBUG — PRINTING node-config.json LOADED BY NODE ==="
+cat "$CONFIG_DIR/node-config.json"
+echo "=========================================================="
+
 ############################################################
 # NODE CONFIG (REQUIRED FOR CARDANO-NODE 10.X)
 ############################################################
