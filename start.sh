@@ -36,7 +36,10 @@ if ! command -v cardano-node >/dev/null 2>&1; then
     mv bin/cardano-node "$BIN_DIR/"
     mv bin/cardano-cli "$BIN_DIR/"
 
-    echo ">>> Cleaning up..."
+    echo ">>> Copying genesis files from tarball"
+    cp share/sanchonet/*.json "$CONFIG_DIR/"
+
+    echo ">>> Cleaning extracted folders"
     rm -rf bin lib share
     rm "$TARBALL"
 fi
@@ -45,12 +48,12 @@ echo "Installed cardano-node: $(cardano-node --version)"
 echo "Installed cardano-cli:  $(cardano-cli --version)"
 
 ############################################################
-# GENESIS
+# GENESIS (WE STILL KEEP OUR SIMPLE genesis.json)
 ############################################################
 
 SYSTEM_START=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
-echo ">>> Writing genesis.json"
+echo ">>> Writing simple genesis.json"
 cat > "$CONFIG_DIR/genesis.json" <<EOF
 {
   "systemStart": "$SYSTEM_START",
@@ -76,17 +79,21 @@ cat > "$CONFIG_DIR/genesis.json" <<EOF
 EOF
 
 ############################################################
-# NODE CONFIG
+# NODE CONFIG (REQUIRED FOR CARDANO-NODE 10.X)
 ############################################################
 
 echo ">>> Writing node-config.json"
 cat > "$CONFIG_DIR/node-config.json" <<EOF
 {
-  "Protocol": "Babbage",
-  "TraceForge": true,
-  "EnableTracing": true,
-  "minSeverity": "Info",
-  "NetworkMagic": $NETWORK_MAGIC
+  "Protocol": "Cardano",
+  "ByronGenesisFile": "$CONFIG_DIR/byron-genesis.json",
+  "ShelleyGenesisFile": "$CONFIG_DIR/shelley-genesis.json",
+  "AlonzoGenesisFile": "$CONFIG_DIR/alonzo-genesis.json",
+  "ConwayGenesisFile": "$CONFIG_DIR/conway-genesis.json",
+  "RequiresNetworkMagic": "RequiresMagic",
+  "NetworkMagic": $NETWORK_MAGIC,
+  "EnableP2P": false,
+  "minSeverity": "Info"
 }
 EOF
 
@@ -114,7 +121,7 @@ cardano-cli address build \
 
 ADDRESS=$(cat "$KEYS_DIR/payment.addr")
 
-echo ">>> Funding genesis UTxO for: $ADDRESS"
+echo ">>> Funding simple genesis UTxO for: $ADDRESS"
 
 sed -i "s/\"initialFunds\": {}/\"initialFunds\": {\"$ADDRESS\": {\"lovelace\": 1000000000000}}/" "$CONFIG_DIR/genesis.json"
 
@@ -131,7 +138,6 @@ cardano-node run \
   --host-addr 0.0.0.0 \
   --port $PORT \
   --config "$CONFIG_DIR/node-config.json" \
-  --genesis "$CONFIG_DIR/genesis.json" \
   > "$BASE_DIR/node.log" 2>&1 &
 
 echo ""
