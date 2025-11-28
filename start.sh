@@ -62,20 +62,33 @@ ADDRESS=$(cardano-cli address build \
 echo "Funding Address (bech32): $ADDRESS"
 
 ############################################################
-# GENERATE TRUE CBOR SHELLEY ADDRESS (BINARY)
-# This is the FIX that makes genesis accept the address.
+# GENERATE CBOR SHELLEY ADDRESS USING PYTHON (CORRECT!)
 ############################################################
 
-cardano-cli address build \
-  --payment-verification-key-file "$KEYS_DIR/payment.vkey" \
-  --testnet-magic 4 \
-  --out-file "$KEYS_DIR/payment.addr"
+# 1. get keyhash from CLI (this works in all versions)
+KEYHASH=$(cardano-cli address key-hash \
+    --payment-verification-key-file "$KEYS_DIR/payment.vkey")
 
-# Convert CBOR binary → hex
+# 2. generate CBOR Shelley address from keyhash using Python
 CBOR_ADDRESS=$(python3 - <<EOF
 import binascii
-d=open("$KEYS_DIR/payment.addr","rb").read()
-print(binascii.hexlify(d).decode())
+
+keyhash = "$KEYHASH"
+
+# network id 0x04 (testnet = 4)
+# addr header for Shelley payment keyhash = 0x60 | network_id
+network_id = 0x04
+header = 0x60 | network_id
+
+# Construct CBOR: 82 <header> 58 1c <keyhash>
+cbor = bytearray()
+cbor.append(0x82)        # CBOR array(2)
+cbor.append(header)      # header byte
+cbor.append(0x58)        # CBOR bytes (next length)
+cbor.append(0x1c)        # 28 bytes
+cbor += binascii.unhexlify(keyhash)
+
+print(binascii.hexlify(cbor).decode())
 EOF
 )
 
