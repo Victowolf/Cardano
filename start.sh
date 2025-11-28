@@ -98,9 +98,24 @@ cat > "$CONFIG_DIR/node-config.json" <<EOF
   "LastKnownBlockVersion-Alt": 0,
 
   "EnableP2P": false,
-  "minSeverity": "Info",
 
-  "LogMetrics": false
+  "minSeverity": "Info",
+  "LogMetrics": false,
+
+  "TraceBlockFetchClient": false,
+  "TraceBlockFetchDecisions": false,
+  "TraceChainSyncClient": false,
+  "TraceChainSyncServer": false,
+  "TraceForge": false,
+  "TraceHandshake": false,
+  "TraceIpSubscription": false,
+  "TraceLocalChainSyncProtocol": false,
+  "TraceLocalTxSubmissionProtocol": false,
+  "TraceLocalTxSubmissionServer": false,
+  "TraceMempool": false,
+  "TraceMux": false,
+  "TraceTxInbound": false,
+  "TraceTxOutbound": false
 }
 EOF
 
