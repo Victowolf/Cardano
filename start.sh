@@ -53,18 +53,18 @@ ADDRESS=$(cardano-cli address build \
 echo "Funding Address (bech32): $ADDRESS"
 
 ############################################################
-# GET CBOR SHELLEY ADDRESS WITHOUT 'xxd' (PYTHON ONLY)
+# GENERATE REAL CBOR SHELLEY ADDRESS (WORKS ON ALL VERSIONS)
 ############################################################
 
-# Generate raw CBOR Shelley address (binary)
-cardano-cli address build \
+# This produces RAW CBOR binary (correct)
+cardano-cli shelley address build \
   --payment-verification-key-file "$KEYS_DIR/payment.vkey" \
   --testnet-magic 4 \
   --out-file "$KEYS_DIR/payment.addr"
 
-# Convert binary → hex using Python
+# Convert CBOR binary → hex using Python
 CBOR_ADDRESS=$(python3 - <<EOF
-import sys, binascii
+import binascii
 data = open("$KEYS_DIR/payment.addr","rb").read()
 print(binascii.hexlify(data).decode())
 EOF
