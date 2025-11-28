@@ -14,7 +14,6 @@ KEYS_DIR="$BASE_DIR/keys"
 rm -rf "$RAW_CONFIG_DIR" "$RUN_CONFIG_DIR" "$DB_DIR" "$KEYS_DIR"
 mkdir -p "$RAW_CONFIG_DIR" "$RUN_CONFIG_DIR" "$DB_DIR" "$KEYS_DIR"
 
-
 ############################################################
 # DOWNLOAD CARDANO BINARY RELEASE
 ############################################################
@@ -32,46 +31,39 @@ if ! command -v cardano-node >/dev/null 2>&1; then
     rm -rf bin lib share "$TARBALL"
 fi
 
-
 ############################################################
 # COPY SANCHONET RAW CONFIG INTO RUN CONFIG DIR
 ############################################################
 
 cp "$RAW_CONFIG_DIR/"* "$RUN_CONFIG_DIR/"
 
-
 ############################################################
-# GENERATE PAYMENT KEYS + BECH32 ADDRESS
+# GENERATE PAYMENT KEYS + SHELLEY ADDRESS
 ############################################################
 
 cardano-cli address key-gen \
   --verification-key-file "$KEYS_DIR/payment.vkey" \
   --signing-key-file "$KEYS_DIR/payment.skey"
 
+# Human-readable bech32 address
 ADDRESS=$(cardano-cli address build \
   --payment-verification-key-file "$KEYS_DIR/payment.vkey" \
   --testnet-magic 4)
 
 echo "Funding Address (bech32): $ADDRESS"
 
-
 ############################################################
-# BUILD CBOR-ENCODED GENESIS ADDRESS
+# GET CORRECT CBOR ADDRESS DIRECTLY FROM CARDANO-CLI
+# (Fixes all genesis 'wrong format' errors)
 ############################################################
 
-KEYHASH=$(cardano-cli address key-hash \
-  --payment-verification-key-file "$KEYS_DIR/payment.vkey")
-
-# CBOR address = 82 581c <keyhash> 01
-CBOR_ADDRESS=$(python3 - <<EOF
-keyhash="$KEYHASH"
-cbor = "82" + "581c" + keyhash + "01"
-print(cbor)
-EOF
-)
+CBOR_ADDRESS=$(cardano-cli address build \
+  --payment-verification-key-file "$KEYS_DIR/payment.vkey" \
+  --testnet-magic 4 \
+  --out-file /dev/stdout --with-cbor \
+  | grep Hex | awk '{print $2}')
 
 echo "Genesis CBOR Address: $CBOR_ADDRESS"
-
 
 ############################################################
 # INSERT INITIAL FUNDS INTO SHELLEY GENESIS
@@ -82,9 +74,8 @@ jq ".initialFunds = {\"$CBOR_ADDRESS\": {\"lovelace\": 1000000000000}}" \
 
 mv "$RUN_CONFIG_DIR/tmp.json" "$RUN_CONFIG_DIR/shelley-genesis.json"
 
-
 ############################################################
-# COMPUTE SHELLEY GENESIS HASH USING PYTHON BLAKE2B-256
+# COMPUTE SHELLEY GENESIS HASH
 ############################################################
 
 GENESIS_HASH=$(python3 - <<EOF
@@ -103,7 +94,6 @@ jq ".ShelleyGenesisHash = \"$GENESIS_HASH\"" \
 
 mv "$RUN_CONFIG_DIR/tmp.json" "$RUN_CONFIG_DIR/config.json"
 
-
 ############################################################
 # START CARDANO NODE
 ############################################################
@@ -118,6 +108,7 @@ cardano-node run \
   --port 3001 \
   --config "$RUN_CONFIG_DIR/config.json" \
   > "$BASE_DIR/node.log" 2>&1 &
+
 
 echo ""
 echo "==============================="
