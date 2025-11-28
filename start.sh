@@ -141,7 +141,7 @@ cardano-node run \
 echo ""
 echo "==============================="
 echo "    SANCHONET NODE STARTED"
-==============================
+echo "==============================="
 echo "Funding Address (bech32): $ADDRESS"
 echo "Genesis CBOR Address:     $CBOR_ADDRESS"
 echo "ShelleyGenesisHash:       $GENESIS_HASH"
