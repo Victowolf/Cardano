@@ -86,9 +86,6 @@ cat > "$CONFIG_DIR/node-config.json" <<EOF
 {
   "Protocol": "Cardano",
 
-  "LastKnownBlockVersion-Major": 7,
-  "LastKnownBlockVersion-Minor": 0,
-
   "ByronGenesisFile": "$CONFIG_DIR/byron-genesis.json",
   "ShelleyGenesisFile": "$CONFIG_DIR/shelley-genesis.json",
   "AlonzoGenesisFile": "$CONFIG_DIR/alonzo-genesis.json",
@@ -101,30 +98,8 @@ cat > "$CONFIG_DIR/node-config.json" <<EOF
 
   "minSeverity": "Info",
 
-  "TracingVerbosity": "Normal",
-  "TracingBackend": "Katip",
-
-  "SetupLogging": true,
-  "DefaultBackends": ["KatipBK"],
-  "DefaultScribes": [
-    {
-      "scName": "stdout",
-      "scKind": "stdout",
-      "scFormat": "ScText"
-    }
-  ],
-
-  "setupScribes": [
-    {
-      "fcTag": "stdout",
-      "scName": "stdout",
-      "scKind": "stdout",
-      "scFormat": "ScText"
-    }
-  ],
-
-  "TurnOnLogging": true,
-  "TurnOnTracers": true
+  "TurnOnLogging": false,
+  "TurnOnTracers": false
 }
 EOF
 ############################################################
