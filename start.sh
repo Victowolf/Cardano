@@ -66,10 +66,12 @@ echo "Bech32 Address (human readable): $BECH32_ADDR"
 ############################################################
 echo ">>> Converting bech32 → hex (genesis-compatible address)"
 
-RAW_ADDR=$(cardano-cli address info --address "$BECH32_ADDR" | jq -r '.address')
+RAW_ADDR=$(cardano-cli address info --address "$BECH32_ADDR" \
+           | jq -r '.base16')
 
 if [ -z "$RAW_ADDR" ] || ! echo "$RAW_ADDR" | grep -Eq '^[0-9a-f]+$'; then
-    echo "❌ ERROR: cardano-cli failed to produce hex address"
+    echo "❌ ERROR: cardano-cli failed to produce valid hex address"
+    echo "cardano-cli output:"
     cardano-cli address info --address "$BECH32_ADDR"
     exit 1
 fi
