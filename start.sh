@@ -81,29 +81,52 @@ EOF
 ############################################################
 # NODE CONFIG (REQUIRED FOR CARDANO-NODE 10.X)
 ############################################################
-
 echo ">>> Writing node-config.json"
 cat > "$CONFIG_DIR/node-config.json" <<EOF
 {
   "Protocol": "Cardano",
+
+  "LastKnownBlockVersion-Major": 7,
+  "LastKnownBlockVersion-Minor": 0,
+
   "ByronGenesisFile": "$CONFIG_DIR/byron-genesis.json",
   "ShelleyGenesisFile": "$CONFIG_DIR/shelley-genesis.json",
   "AlonzoGenesisFile": "$CONFIG_DIR/alonzo-genesis.json",
   "ConwayGenesisFile": "$CONFIG_DIR/conway-genesis.json",
+
   "RequiresNetworkMagic": "RequiresMagic",
   "NetworkMagic": $NETWORK_MAGIC,
+
   "EnableP2P": false,
-  "minSeverity": "Info"
+
+  "minSeverity": "Info",
+
+  "TracingVerbosity": "Normal",
+  "TracingBackend": "Katip",
+
+  "SetupLogging": true,
+  "DefaultBackends": ["KatipBK"],
+  "DefaultScribes": [
+    {
+      "scName": "stdout",
+      "scKind": "stdout",
+      "scFormat": "ScText"
+    }
+  ],
+
+  "setupScribes": [
+    {
+      "fcTag": "stdout",
+      "scName": "stdout",
+      "scKind": "stdout",
+      "scFormat": "ScText"
+    }
+  ],
+
+  "TurnOnLogging": true,
+  "TurnOnTracers": true
 }
 EOF
-
-echo ">>> Writing topology.json"
-cat > "$CONFIG_DIR/topology.json" <<EOF
-{
-  "Producers": []
-}
-EOF
-
 ############################################################
 # KEYS + FUND GENESIS
 ############################################################
