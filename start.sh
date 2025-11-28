@@ -6,174 +6,106 @@ TARBALL="cardano-node-${CARDANO_VERSION}-linux.tar.gz"
 RELEASE_URL="https://github.com/IntersectMBO/cardano-node/releases/download/${CARDANO_VERSION}/${TARBALL}"
 
 BASE_DIR="$(cd "$(dirname "$0")" && pwd)"
-CONFIG_DIR="$BASE_DIR/config"
+RAW_CONFIG_DIR="$BASE_DIR/config_raw"
+RUN_CONFIG_DIR="$BASE_DIR/config"
 DB_DIR="$BASE_DIR/db"
 KEYS_DIR="$BASE_DIR/keys"
-LOG_FILE="$BASE_DIR/node.log"
 
-NETWORK_MAGIC=1337
-INITIAL_LOVELACE=1000000000000
+rm -rf "$RAW_CONFIG_DIR" "$RUN_CONFIG_DIR" "$DB_DIR" "$KEYS_DIR"
+mkdir -p "$RAW_CONFIG_DIR" "$RUN_CONFIG_DIR" "$DB_DIR" "$KEYS_DIR"
 
-rm -rf "$CONFIG_DIR" "$DB_DIR" "$KEYS_DIR" "$LOG_FILE"
-mkdir -p "$CONFIG_DIR" "$DB_DIR" "$KEYS_DIR"
+############################################################
+# DOWNLOAD BINARIES + OFFICIAL CONFIGS
+############################################################
 
-export PATH="/usr/local/bin:$PATH"
-
-echo "==> Ensuring cardano-node ${CARDANO_VERSION}"
-if ! (command -v cardano-node >/dev/null 2>&1 && cardano-node version | grep -q "${CARDANO_VERSION}"); then
-    echo "Downloading binary..."
+if ! command -v cardano-node >/dev/null 2>&1; then
+    echo ">>> Downloading Cardano Node ${CARDANO_VERSION}"
     wget -q "$RELEASE_URL" -O "$TARBALL"
     tar -xf "$TARBALL"
-    install -m 755 bin/cardano-node /usr/local/bin/cardano-node
-    install -m 755 bin/cardano-cli /usr/local/bin/cardano-cli
+
+    mv bin/cardano-node /usr/local/bin/
+    mv bin/cardano-cli  /usr/local/bin/
+
+    # THIS IS WHY YOUR OLD SCRIPT WORKS:
+    cp -r share/sanchonet/* "$RAW_CONFIG_DIR/"
+
     rm -rf bin lib share "$TARBALL"
 fi
 
-echo ">>> cardano-cli version:"
-cardano-cli version || true
+############################################################
+# COPY CLEAN SANCHONET CONFIGS
+############################################################
 
-echo ">>> Generating keys"
+cp "$RAW_CONFIG_DIR/config.json"          "$RUN_CONFIG_DIR/"
+cp "$RAW_CONFIG_DIR/topology.json"        "$RUN_CONFIG_DIR/"
+cp "$RAW_CONFIG_DIR/byron-genesis.json"   "$RUN_CONFIG_DIR/"
+cp "$RAW_CONFIG_DIR/shelley-genesis.json" "$RUN_CONFIG_DIR/"
+cp "$RAW_CONFIG_DIR/alonzo-genesis.json"  "$RUN_CONFIG_DIR/"
+cp "$RAW_CONFIG_DIR/conway-genesis.json"  "$RUN_CONFIG_DIR/"
+
+############################################################
+# GENERATE WALLET KEYPAIR
+############################################################
+
 cardano-cli address key-gen \
   --verification-key-file "$KEYS_DIR/payment.vkey" \
   --signing-key-file "$KEYS_DIR/payment.skey"
 
 ADDRESS=$(cardano-cli address build \
   --payment-verification-key-file "$KEYS_DIR/payment.vkey" \
-  --testnet-magic "$NETWORK_MAGIC")
+  --testnet-magic 4)
 
-echo "Funding Address: $ADDRESS"
+echo "Funding address: $ADDRESS"
 
-KEYHASH=$(cardano-cli address key-hash \
-  --payment-verification-key-file "$KEYS_DIR/payment.vkey")
+############################################################
+# ADD INITIAL FUNDS TO GENESIS
+############################################################
 
-echo "Keyhash: $KEYHASH"
+jq ".initialFunds += {\"$ADDRESS\": {\"lovelace\": 1000000000000}}" \
+   "$RUN_CONFIG_DIR/shelley-genesis.json" > "$RUN_CONFIG_DIR/tmp.json"
 
-echo ">>> Building CBOR address"
-CBOR_ADDRESS=$(python3 - <<PY
-import binascii
-keyhash = "${KEYHASH}".replace("0x", "")
-header = 0x66
-cbor = bytearray()
-cbor.append(0x82)
-cbor.append(header)
-cbor.append(0x58)
-cbor.append(0x1c)
-cbor += binascii.unhexlify(keyhash)
-print(binascii.hexlify(cbor).decode())
-PY
-)
+mv "$RUN_CONFIG_DIR/tmp.json" "$RUN_CONFIG_DIR/shelley-genesis.json"
 
-echo "Genesis CBOR Address: $CBOR_ADDRESS"
+############################################################
+# COMPUTE NEW GENESIS HASH (USING cardano-cli)
+############################################################
 
-echo ">>> Writing shelley-genesis.json"
-SYSTEM_START=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+GENESIS_HASH=$(cardano-cli conway genesis hash \
+  --genesis "$RUN_CONFIG_DIR/shelley-genesis.json")
 
-cat > "$CONFIG_DIR/shelley-genesis.json" <<JSON
-{
-  "networkId": "Testnet",
-  "networkMagic": $NETWORK_MAGIC,
-  "systemStart": "$SYSTEM_START",
-  "activeSlotsCoeff": 0.1,
-  "securityParam": 10,
-  "epochLength": 500,
-  "slotLength": 1,
-  "maxLovelaceSupply": 45000000000000000,
+echo "Correct ShelleyGenesisHash = $GENESIS_HASH"
 
-  "initialFunds": {
-    "$CBOR_ADDRESS": { "lovelace": $INITIAL_LOVELACE }
-  },
+############################################################
+# PATCH INTO config.json (OFFICIAL CONFIG)
+############################################################
 
-  "staking": { "pools": {}, "stake": {} }
-}
-JSON
+jq ".ShelleyGenesisHash = \"$GENESIS_HASH\"" \
+   "$RUN_CONFIG_DIR/config.json" > "$RUN_CONFIG_DIR/tmp.json"
 
-echo ">>> Writing other genesis/config"
-echo '{}' > "$CONFIG_DIR/topology.json"
-echo '{}' > "$CONFIG_DIR/byron-genesis.json"
-echo '{}' > "$CONFIG_DIR/alonzo-genesis.json"
-echo '{}' > "$CONFIG_DIR/conway-genesis.json"
+mv "$RUN_CONFIG_DIR/tmp.json" "$RUN_CONFIG_DIR/config.json"
 
-cat > "$CONFIG_DIR/config.json" <<JSON
-{
-  "Protocol": "Cardano",
+############################################################
+# START NODE
+############################################################
 
-  "NodeLoggingFormat": "Json",
-  "LogMetrics": false,
-  "TraceBlockFetchDecisions": false,
+echo ">>> Starting cardano-node..."
 
-  "ByronGenesisFile": "byron-genesis.json",
-  "ShelleyGenesisFile": "shelley-genesis.json",
-  "AlonzoGenesisFile": "alonzo-genesis.json",
-  "ConwayGenesisFile": "conway-genesis.json",
-
-  "AcceptableNetworkMagic": $NETWORK_MAGIC,
-  "RequiresNetworkMagic": "RequiresMagic",
-
-  "LastKnownBlockVersion-Major": 0,
-  "LastKnownBlockVersion-Minor": 0,
-  "LastKnownBlockVersion-Alt": 0,
-
-  "ApplicationName": "cardano-node",
-  "ApplicationVersion": 1,
-
-  "defaultBackends": ["KatipBK"],
-  "defaultScribes": [
-    {
-      "scFormat": "ScJson",
-      "scKind": "StdoutSK"
-    }
-  ]
-}
-JSON
-
-echo ">>> Computing genesis hash"
-/usr/bin/env python3 - <<PY
-import hashlib, json
-path="${CONFIG_DIR}/shelley-genesis.json"
-with open(path,"rb") as f:
-    d=f.read()
-h=hashlib.blake2b(digest_size=32)
-h.update(d)
-print(h.hexdigest())
-PY
-GENESIS_HASH=$(/usr/bin/env python3 - <<PY
-import hashlib
-data=open("${CONFIG_DIR}/shelley-genesis.json","rb").read()
-h=hashlib.blake2b(digest_size=32)
-h.update(data)
-print(h.hexdigest())
-PY
-)
-
-echo "GenesisHash: $GENESIS_HASH"
-
-python3 - <<PY
-import json
-p="${CONFIG_DIR}/config.json"
-c=json.load(open(p))
-c["ShelleyGenesisHash"]="${GENESIS_HASH}"
-open(p,"w").write(json.dumps(c, indent=2))
-PY
-
-echo ">>> Starting node"
 cardano-node run \
-  --topology "$CONFIG_DIR/topology.json" \
+  --topology      "$RUN_CONFIG_DIR/topology.json" \
   --database-path "$DB_DIR" \
-  --socket-path "$DB_DIR/node.socket" \
-  --host-addr 0.0.0.0 \
-  --port 3001 \
-  --config "$CONFIG_DIR/config.json" \
-  > "$LOG_FILE" 2>&1 &
+  --socket-path   "$DB_DIR/node.socket" \
+  --host-addr     0.0.0.0 \
+  --port          3001 \
+  --config        "$RUN_CONFIG_DIR/config.json" \
+  > "$BASE_DIR/node.log" 2>&1 &
 
-sleep 2
+echo ""
+echo "==============================="
+echo " PRIVATE SANCHONET NODE READY "
+echo "==============================="
+echo "Address: $ADDRESS"
+echo "Hash:    $GENESIS_HASH"
+echo "Logs:    $BASE_DIR/node.log"
+echo ""
 
-echo "====================================="
-echo " PRIVATE CARDANO NODE - RUNNING"
-echo "====================================="
-echo "Bech32 Address:       $ADDRESS"
-echo "CBOR Genesis Address: $CBOR_ADDRESS"
-echo "Genesis Hash:         $GENESIS_HASH"
-echo "Magic:                $NETWORK_MAGIC"
-echo "Logs:                 $LOG_FILE"
-
-tail -f "$LOG_FILE"
+tail -f "$BASE_DIR/node.log"
