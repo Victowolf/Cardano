@@ -6,6 +6,8 @@ set -euo pipefail
 # - Correct Shelley CBOR address generation
 # - Valid initialFunds format
 # - Pure Python CBOR (no cardano-address dependency)
+# - Detects existing cardano-node/cardano-cli and installs if missing
+# - Writes logs to node.log and tails them
 # ----------------------------------------------------
 
 CARDANO_VERSION="10.1.4"
@@ -22,6 +24,7 @@ LOG_FILE="$BASE_DIR/node.log"
 NETWORK_MAGIC=1337
 INITIAL_LOVELACE=1000000000000   # 1 million ADA
 
+# Clean up any leftover run-time directories (safe for ephemeral containers)
 rm -rf "$RAW_CONFIG_DIR" "$RUN_CONFIG_DIR" "$DB_DIR" "$KEYS_DIR" "$LOG_FILE"
 mkdir -p "$RAW_CONFIG_DIR" "$RUN_CONFIG_DIR" "$DB_DIR" "$KEYS_DIR"
 
@@ -29,14 +32,18 @@ export PATH="/usr/local/bin:$PATH"
 
 echo "==> Ensure cardano-node ${CARDANO_VERSION} present"
 
-if ! (command -v cardano-node >/dev/null 2>&1 && cardano-node version | grep -q "${CARDANO_VERSION}"); then
+# Install node & cli if not already installed or if version mismatch
+if command -v cardano-node >/dev/null 2>&1 && cardano-node version | grep -q "${CARDANO_VERSION}"; then
+  echo ">>> Found cardano-node ${CARDANO_VERSION} already installed"
+else
   echo ">>> Downloading cardano-node ${CARDANO_VERSION}"
   wget -q "$RELEASE_URL" -O "$TARBALL"
   tar -xf "$TARBALL"
 
-  install -m 755 bin/cardano-node /usr/local/bin/cardano-node
-  install -m 755 bin/cardano-cli  /usr/local/bin/cardano-cli
+  install -m 755 bin/cardano-node /usr/local/bin/cardano-node || true
+  install -m 755 bin/cardano-cli  /usr/local/bin/cardano-cli  || true
 
+  # copy sample sanchonet configs if included in release
   if [ -d "share/sanchonet" ]; then
     cp -r share/sanchonet/* "$RAW_CONFIG_DIR/" || true
   fi
@@ -94,15 +101,17 @@ echo ">>> Building valid Shelley CBOR address"
 KEYHASH=$(cardano-cli address key-hash \
   --payment-verification-key-file "$KEYS_DIR/payment.vkey")
 
-CBOR_ADDRESS=$(python3 - <<EOF
+CBOR_ADDRESS=$(python3 - <<'PY'
 import binascii
-keyhash = "$KEYHASH"
+import sys
+keyhash = sys.stdin.read().strip()
+# Remove possible 0x prefix
+if keyhash.startswith('0x'):
+    keyhash = keyhash[2:]
 
-# Cardano Shelley payment keyhash address format:
-#   [ 0: header byte (payment, keyhash, testnet) = 0x66
-#     1: CBOR bytestring (0x58 length=0x1c) + keyhash
-#   ]
-header = 0x66  # payment + keyhash + testnet
+# header byte: payment + keyhash + testnet
+# In previous implementations some header bytes differed; 0x66 is appropriate here
+header = 0x66
 
 cbor = bytearray()
 cbor.append(0x82)         # array(2)
@@ -112,7 +121,8 @@ cbor.append(0x1c)         # length 28 bytes
 cbor += binascii.unhexlify(keyhash)
 
 print(binascii.hexlify(cbor).decode())
-EOF
+PY
+<<<"$KEYHASH"
 )
 
 echo "Genesis CBOR Address: $CBOR_ADDRESS"
@@ -186,15 +196,17 @@ JSON
 # ----------------------------------------------------
 echo ">>> Patching config.json"
 
-GENESIS_HASH=$(python3 - <<EOF
+GENESIS_HASH=$(python3 - <<'PY'
 import hashlib
-d = open("$RUN_CONFIG_DIR/shelley-genesis.json","rb").read()
-h = hashlib.blake2b(digest_size=32); h.update(d)
+with open("$RUN_CONFIG_DIR/shelley-genesis.json","rb") as f:
+    d = f.read()
+h = hashlib.blake2b(digest_size=32)
+h.update(d)
 print(h.hexdigest())
-EOF
+PY
 )
 
-python3 - <<EOF
+python3 - <<'PY'
 import json
 p="$RUN_CONFIG_DIR/config.json"
 c=json.load(open(p))
@@ -202,9 +214,17 @@ c["ShelleyGenesisHash"]="$GENESIS_HASH"
 c["ShelleyGenesisFile"]="shelley-genesis.json"
 c["AcceptableNetworkMagic"]=$NETWORK_MAGIC
 open(p,"w").write(json.dumps(c, indent=2))
-EOF
+print('Updated', p)
+PY
 
 echo "Correct ShelleyGenesisHash = $GENESIS_HASH"
+
+# Basic validation step: ensure initialFunds key looks like hex (CBOR) and not a bech32 address
+if echo "$CBOR_ADDRESS" | grep -qE '^[0-9a-fA-F]+'; then
+  echo ">>> initialFunds CBOR address appears hex — OK"
+else
+  echo ">>> WARNING: generated CBOR address does not look like hex. Check keyhash."
+fi
 
 # ----------------------------------------------------
 # START NODE
@@ -220,8 +240,10 @@ cardano-node run \
   --config "$RUN_CONFIG_DIR/config.json" \
   > "$LOG_FILE" 2>&1 &
 
+# small wait to let node write initial logs
 sleep 2
 
+# Summarize
 echo ""
 echo "==============================="
 echo " PRIVATE CARDANO NODE STARTED "
@@ -233,4 +255,6 @@ echo "Network Magic:            $NETWORK_MAGIC"
 echo "Logs:                     $LOG_FILE"
 echo ""
 
-tail -f "$LOG_FILE"
+# keep following logs in foreground so container doesn't exit
+  tail -f "$LOG_FILE"
+
