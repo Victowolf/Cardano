@@ -96,7 +96,10 @@ echo '{}' > "$CONFIG_DIR/conway-genesis.json"
 cat > "$CONFIG_DIR/config.json" <<JSON
 {
   "Protocol": "Cardano",
+
   "NodeLoggingFormat": "Json",
+  "TraceBlockFetchDecisions": "Warning",
+  "LogMetrics": false,
 
   "ByronGenesisFile": "byron-genesis.json",
   "ShelleyGenesisFile": "shelley-genesis.json",
@@ -111,7 +114,15 @@ cat > "$CONFIG_DIR/config.json" <<JSON
   "LastKnownBlockVersion-Alt": 0,
 
   "ApplicationName": "cardano-node",
-  "ApplicationVersion": 1
+  "ApplicationVersion": 1,
+
+  "defaultBackends": ["KatipBK"],
+  "defaultScribes": [
+    {
+      "scFormat": "ScJson",
+      "scKind": "StdoutSK"
+    }
+  ]
 }
 JSON
 
