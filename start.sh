@@ -51,7 +51,9 @@ cat > "$RUN_CONFIG_DIR/topology.json" <<EOF
   "localRoots": [
     {
       "accessPoints": [],
-      "advertise": false
+      "advertise": false,
+      "hotValency": 1,
+      "warmValency": 1
     }
   ],
   "publicRoots": [],
