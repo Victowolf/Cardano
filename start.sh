@@ -19,7 +19,7 @@ rm -rf "$RAW_CONFIG_DIR" "$RUN_CONFIG_DIR" "$DB_DIR" "$KEYS_DIR"
 mkdir -p "$RAW_CONFIG_DIR" "$RUN_CONFIG_DIR" "$DB_DIR" "$KEYS_DIR"
 
 ############################################################
-# INSTALL PYTHON DEPENDENCIES
+# PYTHON DEPENDENCIES
 ############################################################
 
 pip install cbor2 >/dev/null 2>&1 || \
@@ -60,37 +60,42 @@ cardano-cli address key-gen \
   --verification-key-file "$KEYS_DIR/payment.vkey" \
   --signing-key-file "$KEYS_DIR/payment.skey"
 
-# Human-friendly address (bech32)
+# Human readable address
 BECH32_ADDR=$(cardano-cli address build \
   --payment-verification-key-file "$KEYS_DIR/payment.vkey" \
   --testnet-magic 4)
 
-echo "Human Address (bech32): $BECH32_ADDR"
+echo "Human Address: $BECH32_ADDR"
 
 ############################################################
-# PYTHON: COMPUTE CORRECT ENTERPRISE HEX ADDRESS FOR GENESIS
+# PYTHON: CORRECT ENTERPRISE ADDRESS (32-byte pubkey → hash)
 ############################################################
 
 GENESIS_HEX=$(python3 - <<PY
 import hashlib, binascii, cbor2, json
 
-# Load vkey from JSON
+# Load vkey JSON
 with open("${KEYS_DIR}/payment.vkey") as f:
     vkey_json = json.load(f)
-vkey_hex = vkey_json["cborHex"]
-vkey_bytes = binascii.unhexlify(vkey_hex)
 
-# Blake2b-224 hash = 28 bytes
-keyhash = hashlib.blake2b(vkey_bytes, digest_size=28).digest()
+# Decode full cborHex
+vkey_cbor = binascii.unhexlify(vkey_json["cborHex"])
 
-# Enterprise address (payment only, testnet network ID = 0)
-header = bytes([0x60])      # 0x60 = enterprise + testnet
-addr_raw = header + keyhash # 1 + 28 = 29 bytes
+# vkey_cbor = 58 20 <32-bytes>; skip first 2 bytes to get pubkey
+pubkey = vkey_cbor[2:]      # CORRECT FIX — 32 bytes
 
-# Wrap in CBOR bytestring → 581d...
+# Blake2b-224 (28 bytes)
+keyhash = hashlib.blake2b(pubkey, digest_size=28).digest()
+
+# Enterprise Shelley address header (payment, testnet=0)
+header = bytes([0x60])
+
+# 29 bytes total (1 + 28)
+addr_raw = header + keyhash
+
+# Wrap into CBOR bytestring
 addr_cbor = cbor2.dumps(addr_raw)
 
-# Output hex
 print(binascii.hexlify(addr_cbor).decode())
 PY
 )
@@ -110,14 +115,14 @@ mv "$RUN_CONFIG_DIR/tmp.json" "$RUN_CONFIG_DIR/shelley-genesis.json"
 # COMPUTE GENESIS HASH
 ############################################################
 
-echo ">>> Computing correct Shelley Genesis Hash..."
+echo ">>> Computing Genesis Hash..."
 GENESIS_HASH=$(cardano-cli conway genesis hash \
   --genesis "$RUN_CONFIG_DIR/shelley-genesis.json")
 
 echo "Genesis Hash: $GENESIS_HASH"
 
 ############################################################
-# PATCH CONFIG.JSON WITH NEW GENESIS HASH
+# PATCH CONFIG.JSON
 ############################################################
 
 jq ".ShelleyGenesisHash = \"$GENESIS_HASH\"" \
@@ -143,12 +148,12 @@ cardano-node run \
 sleep 2
 
 ############################################################
-# OUTPUT INFO
+# DONE
 ############################################################
 
 echo ""
 echo "==============================="
-echo "   PRIVATE SANCHONET NODE READY"
+echo " PRIVATE SANCHONET NODE READY"
 echo "==============================="
 echo "Human Address:    $BECH32_ADDR"
 echo "Genesis HEX Addr: $GENESIS_HEX"
