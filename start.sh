@@ -32,13 +32,17 @@ if ! command -v cardano-node >/dev/null 2>&1; then
     echo ">>> Extracting..."
     tar -xf "$TARBALL"
 
-    # The tarball contains:
-    #   cardano-node
-    #   cardano-cli
-    mv cardano-node "$BIN_DIR"/
-    mv cardano-cli "$BIN_DIR"/
+    # Detect extracted directory automatically
+    EXTRACTED_DIR=$(tar -tf "$TARBALL" | head -n 1 | cut -d/ -f1)
 
-    echo ">>> Cleaning up tarball..."
+    echo ">>> Extracted directory: $EXTRACTED_DIR"
+
+    # Move binaries
+    mv "${EXTRACTED_DIR}/bin/cardano-node" "$BIN_DIR/"
+    mv "${EXTRACTED_DIR}/bin/cardano-cli" "$BIN_DIR/"
+
+    echo ">>> Cleaning up..."
+    rm -rf "$EXTRACTED_DIR"
     rm "$TARBALL"
 fi
 
@@ -46,7 +50,7 @@ echo "Installed cardano-node: $(cardano-node --version)"
 echo "Installed cardano-cli:  $(cardano-cli --version)"
 
 ############################################################
-# CREATE GENESIS
+# GENESIS
 ############################################################
 
 SYSTEM_START=$(date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -77,7 +81,7 @@ cat > "$CONFIG_DIR/genesis.json" <<EOF
 EOF
 
 ############################################################
-# CREATE NODE CONFIG + TOPOLOGY
+# NODE CONFIG
 ############################################################
 
 echo ">>> Writing node-config.json"
@@ -85,7 +89,6 @@ cat > "$CONFIG_DIR/node-config.json" <<EOF
 {
   "Protocol": "Babbage",
   "TraceForge": true,
-  "EnableLogMetrics": false,
   "EnableTracing": true,
   "minSeverity": "Info",
   "NetworkMagic": $NETWORK_MAGIC
@@ -100,7 +103,7 @@ cat > "$CONFIG_DIR/topology.json" <<EOF
 EOF
 
 ############################################################
-# GENERATE KEYS + FUND GENESIS
+# KEYS + FUND GENESIS
 ############################################################
 
 echo ">>> Generating wallet keys"
@@ -118,7 +121,6 @@ ADDRESS=$(cat "$KEYS_DIR/payment.addr")
 
 echo ">>> Funding genesis UTxO for: $ADDRESS"
 
-# Add 1,000,000 ADA to genesis
 sed -i "s/\"initialFunds\": {}/\"initialFunds\": {\"$ADDRESS\": {\"lovelace\": 1000000000000}}/" "$CONFIG_DIR/genesis.json"
 
 ############################################################
@@ -145,7 +147,6 @@ echo "Funded Address:"
 echo "$ADDRESS"
 echo ""
 echo "Genesis: $CONFIG_DIR/genesis.json"
-echo "Node Config: $CONFIG_DIR/node-config.json"
 echo "Logs: $BASE_DIR/node.log"
 echo ""
 echo "Tailing logs..."
