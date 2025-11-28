@@ -99,7 +99,9 @@ cat > "$CONFIG_DIR/node-config.json" <<EOF
   "LastKnownBlockVersion-Alt": 0,
 
   "EnableP2P": false,
-  "minSeverity": "Info"
+  "minSeverity": "Info",
+
+  "LogMetrics": false
 }
 EOF
 ############################################################
