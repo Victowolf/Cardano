@@ -62,30 +62,27 @@ ADDRESS=$(cardano-cli address build \
 echo "Funding Address (bech32): $ADDRESS"
 
 ############################################################
-# GENERATE CBOR SHELLEY ADDRESS USING PYTHON (CORRECT!)
+# GENERATE CBOR SHELLEY ADDRESS (FINAL FIX – SANCHONET OK)
 ############################################################
 
-# 1. get keyhash from CLI (this works in all versions)
 KEYHASH=$(cardano-cli address key-hash \
     --payment-verification-key-file "$KEYS_DIR/payment.vkey")
 
-# 2. generate CBOR Shelley address from keyhash using Python
 CBOR_ADDRESS=$(python3 - <<EOF
 import binascii
 
 keyhash = "$KEYHASH"
 
-# network id 0x04 (testnet = 4)
-# addr header for Shelley payment keyhash = 0x60 | network_id
-network_id = 0x04
-header = 0x60 | network_id
+# SANCHONET uses network_id = 0 (NOT 4)
+network_id = 0x00
+header = 0x60 | network_id  # => 0x60
 
-# Construct CBOR: 82 <header> 58 1c <keyhash>
+# CBOR format: 82 <header> 58 1c <keyhash>
 cbor = bytearray()
 cbor.append(0x82)        # CBOR array(2)
-cbor.append(header)      # header byte
+cbor.append(header)      # header byte (0x60)
 cbor.append(0x58)        # CBOR bytes (next length)
-cbor.append(0x1c)        # 28 bytes
+cbor.append(0x1c)        # 28 bytes (keyhash length)
 cbor += binascii.unhexlify(keyhash)
 
 print(binascii.hexlify(cbor).decode())
