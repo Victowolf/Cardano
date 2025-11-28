@@ -156,7 +156,7 @@ cat > "$RUN_CONFIG_DIR/shelley-genesis.json" <<JSON
 
   "maxLovelaceSupply": 45000000000000000,
 
-  "protocolParams": {
+    "protocolParams": {
     "minFeeA": 44,
     "minFeeB": 155381,
     "maxBlockBodySize": 65536,
@@ -165,36 +165,42 @@ cat > "$RUN_CONFIG_DIR/shelley-genesis.json" <<JSON
 
     "keyDeposit": 2000000,
     "poolDeposit": 500000000,
+
     "eMax": 18,
     "nOpt": 150,
+
+    "a0": 0.3,
+    "rho": 0.003,
+    "tau": 0.20,
+
     "poolPledgeInfluence": 0.3,
     "monetaryExpansion": 0.003,
     "treasuryCut": 0.20,
 
     "protocolVersion": {
-      "major": 10,
-      "minor": 0
+        "major": 10,
+        "minor": 0
     },
 
     "maxBlockExecutionUnits": {
-      "memory": 10000000,
-      "steps": 5000000000
+        "memory": 10000000,
+        "steps": 5000000000
     },
     "maxTxExecutionUnits": {
-      "memory": 5000000,
-      "steps": 2000000000
+        "memory": 5000000,
+        "steps": 2000000000
     },
 
     "prices": {
-      "memory": 0.001,
-      "steps": 0.000000001
+        "memory": 0.001,
+        "steps": 0.000000001
     },
 
     "maxValueSize": 5000,
 
     "collateralPercentage": 150,
     "maxCollateralInputs": 3
-  },
+    },
 
   "initialFunds": {
     "$CBOR_ADDRESS": { "lovelace": $INITIAL_LOVELACE }
