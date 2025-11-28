@@ -65,7 +65,7 @@ echo "Human Wallet Address: $USER_ADDR"
 # INSERT HARD-CODED INITIAL FUNDS
 ############################################################
 
-jq ".initialFunds += {\"$HARDCODED_GENESIS_HEX\": {\"lovelace\": 1000000000000}}" \
+jq ".initialFunds += {\"$HARDCODED_GENESIS_HEX\": 1000000000000}" \
    "$RUN_CONFIG_DIR/shelley-genesis.json" > "$RUN_CONFIG_DIR/tmp.json"
 
 mv "$RUN_CONFIG_DIR/tmp.json" "$RUN_CONFIG_DIR/shelley-genesis.json"
